@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="pt-BR" data-type="software">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1218">
+  <meta name="page-type" content="software">
+  <meta name="site-kind" content="gaming">
+  <meta name="description" content="Um jogo sobre ritmo, fadiga e remuneração numa linha de corte industrial.">
+  <title>Turno na Esteira</title>
+  <link rel="stylesheet" href="./styles/turno.css">
+  <script type="module" src="./src/ui.mjs"></script>
+</head>
+<body>
+  <a class="skip" href="#jogo">Ir para o jogo</a>
+  <main id="jogo" class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow"><span class="signal" aria-hidden="true"></span> Linha de corte / Posto 01</p>
+        <h1>Turno na esteira</h1>
+      </div>
+      <button id="audio" class="secondary" type="button" aria-pressed="true">Som do jogo</button>
+    </header>
+
+    <section class="machine" aria-label="Posto de trabalho">
+      <div class="hud">
+        <div class="hud-cell">
+          <label for="fatigue">Fadiga <span id="fatigue-value">0%</span></label>
+          <meter id="fatigue" min="0" max="1" low="0.55" high="0.8" optimum="0" value="0"></meter>
+        </div>
+        <div class="hud-cell clock">
+          <span>Hora do turno</span>
+          <strong id="clock" role="timer">00:00</strong>
+          <span id="time-left">75 s restantes</span>
+        </div>
+        <div class="hud-cell count">
+          <span>Peças processadas</span>
+          <strong id="processed">0</strong>
+        </div>
+      </div>
+
+      <div id="stage" class="stage">
+        <div class="viewport">
+          <canvas id="line" width="1000" height="520" aria-label="Esteira de corte" aria-describedby="controls keyboard" tabindex="-1">
+            Esta interface precisa de um navegador compatível com Canvas.
+          </canvas>
+        </div>
+        <div id="briefing" class="briefing">
+          <p class="eyebrow">Simulação de trabalho</p>
+          <h2>Oito horas<br>em 75 segundos.</h2>
+          <p>Acompanhe a linha de corte enquanto a esteira acelera. Desvios e acidentes afetam o pagamento simulado.</p>
+          <button class="primary" type="button" id="start">Iniciar turno <span aria-hidden="true">→</span></button>
+        </div>
+        <p id="feedback" class="feedback" role="status" aria-atomic="true"></p>
+      </div>
+
+      <div class="control-strip" id="controls">
+        <p><span class="cut-key" aria-hidden="true"></span> Arraste pela linha tracejada</p>
+        <p><span class="risk-key" aria-hidden="true">!</span> Evite a mão de apoio e o osso</p>
+      </div>
+    </section>
+    <div class="below" id="actions" hidden>
+      <details id="keyboard">
+        <summary>Controles de teclado</summary>
+        <p>Use as setas para mover a mira 12 unidades por toque, ou Shift com as setas para mover 3. Use Espaço para traçar e Escape para cancelar.</p>
+        <p id="guide-help">A orientação complementa os controles de corte. Quando ativa, pressione G para atualizar a posição da ponta e da zona de risco.</p>
+        <button class="secondary" type="button" id="guide-toggle" aria-describedby="guide-help" aria-pressed="false">Orientação de teclado</button>
+      </details>
+      <button class="secondary" type="button" id="restart">Reiniciar turno</button>
+    </div>
+
+    <p id="guidance" class="guidance" role="status" aria-atomic="true"></p>
+
+    <section class="results" id="results" aria-labelledby="result-title" hidden>
+      <header>
+        <p class="eyebrow">Fechamento do turno</p>
+        <h2 id="result-title" tabindex="-1">Balanço do turno</h2>
+      </header>
+      <div class="result-grid">
+        <section class="factory" aria-labelledby="factory-title">
+          <h3 id="factory-title">Fábrica</h3>
+          <dl>
+            <div><dt>Peças processadas</dt><dd id="r-processed"></dd></div>
+            <div><dt>Meta de peças</dt><dd id="r-target"></dd></div>
+          </dl>
+        </section>
+        <section class="worker" aria-labelledby="worker-title">
+          <h3 id="worker-title">Trabalhador</h3>
+          <dl>
+            <div><dt>Fadiga</dt><dd id="r-fatigue"></dd></div>
+            <div><dt>Cortes imprecisos</dt><dd id="r-errors"></dd></div>
+            <div><dt>Acidentes</dt><dd id="r-accidents"></dd></div>
+            <div><dt>Valor bruto simulado</dt><dd id="r-gross"></dd></div>
+            <div><dt>Descontos simulados</dt><dd id="r-deductions"></dd></div>
+            <div class="net"><dt>Valor líquido</dt><dd id="r-net"></dd></div>
+          </dl>
+        </section>
+      </div>
+      <button class="primary" type="button" id="replay">Iniciar novo turno <span aria-hidden="true">→</span></button>
+    </section>
+  </main>
+</body>
+</html>
