@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0b1218">
   <meta name="page-type" content="software">
   <meta name="site-kind" content="gaming">
-  <meta name="description" content="Um jogo sobre ritmo, fadiga e remuneração numa linha de corte industrial.">
+  <meta name="description" content="Um jogo sobre ritmo, fadiga e remuneração numa linha de corte de frango.">
   <title>Turno na Esteira</title>
   <link rel="stylesheet" href="./styles/turno.css">
   <script type="module" src="./src/ui.mjs"></script>
@@ -27,46 +27,66 @@
         <div class="hud-cell">
           <label for="fatigue">Fadiga <span id="fatigue-value">0%</span></label>
           <meter id="fatigue" min="0" max="1" low="0.55" high="0.8" optimum="0" value="0"></meter>
+          <span id="break-state">Pausa NR-36 disponível</span>
         </div>
         <div class="hud-cell clock">
-          <span>Hora do turno</span>
+          <span id="hour">Hora 1 de 8</span>
           <strong id="clock" role="timer">00:00</strong>
-          <span id="time-left">75 s restantes</span>
+          <span id="time-left">90 s restantes</span>
         </div>
         <div class="hud-cell count">
-          <span>Peças processadas</span>
-          <strong id="processed">0</strong>
+          <span>Processadas / meta</span>
+          <strong><span id="processed">0</span><small> / <span id="target">18</span></small></strong>
+          <span id="losses">0 perdidas · 0 acidentes</span>
         </div>
       </div>
 
       <div id="stage" class="stage">
         <div class="viewport">
-          <canvas id="line" width="1000" height="520" aria-label="Esteira de corte" aria-describedby="controls keyboard" tabindex="-1">
+          <canvas id="line" width="1000" height="520" aria-label="Esteira de corte e bancada" aria-describedby="controls keyboard" tabindex="-1">
             Esta interface precisa de um navegador compatível com Canvas.
           </canvas>
         </div>
         <div id="briefing" class="briefing">
           <p class="eyebrow">Simulação de trabalho</p>
-          <h2>Oito horas<br>em 75 segundos.</h2>
-          <p>Acompanhe a linha de corte enquanto a esteira acelera. Desvios e acidentes afetam o pagamento simulado.</p>
+          <h2>Oito horas<br>em 90 segundos.</h2>
+          <p>Pegue o frango da esteira, faça os cortes na bancada e devolva a peça antes que outras passem direto. A esteira acelera a cada hora.</p>
+          <ol class="steps">
+            <li><kbd>E</kbd> pega a peça destacada</li>
+            <li>Arraste ao longo de cada linha tracejada</li>
+            <li><kbd>E</kbd> devolve a peça pronta</li>
+            <li><kbd>P</kbd> faz uma pausa NR-36</li>
+          </ol>
           <button class="primary" type="button" id="start">Iniciar turno <span aria-hidden="true">→</span></button>
+        </div>
+        <div id="paused" class="paused" hidden>
+          <p class="eyebrow">Jogo pausado</p>
+          <button class="primary" type="button" id="resume">Continuar <span aria-hidden="true">→</span></button>
         </div>
         <p id="feedback" class="feedback" role="status" aria-atomic="true"></p>
       </div>
 
       <div class="control-strip" id="controls">
-        <p><span class="cut-key" aria-hidden="true"></span> Arraste pela linha tracejada</p>
+        <div class="buttons">
+          <button class="action" type="button" id="grab" disabled>Pegar peça <kbd>E</kbd></button>
+          <button class="action" type="button" id="break" disabled>Pausa NR-36 <kbd>P</kbd></button>
+        </div>
+        <p><span class="cut-key" aria-hidden="true"></span> Arraste pela linha na bancada</p>
         <p><span class="risk-key" aria-hidden="true">!</span> Evite a mão de apoio e o osso</p>
       </div>
     </section>
     <div class="below" id="actions" hidden>
       <details id="keyboard">
         <summary>Controles de teclado</summary>
-        <p>Use as setas para mover a mira 12 unidades por toque, ou Shift com as setas para mover 3. Use Espaço para traçar e Escape para cancelar.</p>
-        <p id="guide-help">A orientação complementa os controles de corte. Quando ativa, pressione G para atualizar a posição da ponta e da zona de risco.</p>
+        <p>E pega a peça mais à direita da esteira e, com a bancada ocupada, devolve a peça. Clique direito também funciona. P inicia uma pausa NR-36: a fadiga cai, mas a esteira continua.</p>
+        <p>Use as setas para mover a mira 12 unidades por toque, ou Shift com as setas para mover 3. Espaço inicia e encerra o traço. Escape cancela o traço ou pausa o jogo.</p>
+        <p id="guide-help">A orientação complementa os controles de corte. Quando ativa, pressione G para ouvir a posição da etapa atual e da zona de risco.</p>
         <button class="secondary" type="button" id="guide-toggle" aria-describedby="guide-help" aria-pressed="false">Orientação de teclado</button>
       </details>
-      <button class="secondary" type="button" id="restart">Reiniciar turno</button>
+      <div class="below-buttons">
+        <button class="secondary" type="button" id="pause">Pausar jogo</button>
+        <button class="secondary" type="button" id="restart">Reiniciar turno</button>
+      </div>
     </div>
 
     <p id="guidance" class="guidance" role="status" aria-atomic="true"></p>
@@ -75,6 +95,7 @@
       <header>
         <p class="eyebrow">Fechamento do turno</p>
         <h2 id="result-title" tabindex="-1">Balanço do turno</h2>
+        <p id="reflection" class="reflection"></p>
       </header>
       <div class="result-grid">
         <section class="factory" aria-labelledby="factory-title">
@@ -82,21 +103,29 @@
           <dl>
             <div><dt>Peças processadas</dt><dd id="r-processed"></dd></div>
             <div><dt>Meta de peças</dt><dd id="r-target"></dd></div>
+            <div><dt>Peças perdidas na esteira</dt><dd id="r-lost"></dd></div>
+            <div><dt>Peças mal processadas</dt><dd id="r-badReturns"></dd></div>
+            <div><dt>Cortes limpos</dt><dd id="r-cleanCuts"></dd></div>
+            <div><dt>Melhor sequência limpa</dt><dd id="r-bestStreak"></dd></div>
           </dl>
         </section>
         <section class="worker" aria-labelledby="worker-title">
           <h3 id="worker-title">Trabalhador</h3>
           <dl>
-            <div><dt>Fadiga</dt><dd id="r-fatigue"></dd></div>
+            <div><dt>Fadiga final / máxima</dt><dd id="r-fatigue"></dd></div>
+            <div><dt>Pausas NR-36</dt><dd id="r-breaks"></dd></div>
             <div><dt>Cortes imprecisos</dt><dd id="r-errors"></dd></div>
             <div><dt>Acidentes</dt><dd id="r-accidents"></dd></div>
             <div><dt>Valor bruto simulado</dt><dd id="r-gross"></dd></div>
+            <div><dt>Bônus por sequência</dt><dd id="r-bonus"></dd></div>
             <div><dt>Descontos simulados</dt><dd id="r-deductions"></dd></div>
             <div class="net"><dt>Valor líquido</dt><dd id="r-net"></dd></div>
           </dl>
         </section>
       </div>
+      <p id="record" class="record"></p>
       <button class="primary" type="button" id="replay">Iniciar novo turno <span aria-hidden="true">→</span></button>
+      <p class="source">A NR-36 (Ministério do Trabalho, 2013) regula a segurança e a saúde no trabalho em frigoríficos e prevê pausas de recuperação ao longo da jornada. Os valores do jogo são fictícios.</p>
     </section>
   </main>
 </body>
