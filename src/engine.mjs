@@ -45,19 +45,25 @@ const PAY = {
 };
 
 // Coordenadas locais da peça (sem escala). Cada etapa é uma linha de corte.
+// A mão de apoio muda de lugar a cada etapa, como quem reposiciona a mão para
+// segurar a peça; cada posição fica perto da linha, mas fora da faixa aceita.
+export const RISK_RADIUS = { mao: 14, osso: 12 };
 export const CUTS = {
   peito: {
-    risk: [0, 44, 14, 'mao'],
+    bone: null,
+    hands: [[0, 44], [0, 20], [-12, -18]],
     steps: [[[-52, -16], [53, 14]], [[-30, -32], [-38, 24]], [[22, -34], [30, 22]]],
     names: ['Separar o filé', 'Tira esquerda', 'Tira direita'],
   },
   asa: {
-    risk: [0, -12, 12, 'osso'],
+    bone: [0, -12],
+    hands: [[-68, 6], [70, 6]],
     steps: [[[-36, -16], [-28, 28]], [[30, -20], [38, 24]]],
     names: ['Junta interna', 'Junta da ponta'],
   },
   coxa: {
-    risk: [12, -30, 12, 'osso'],
+    bone: [12, -30],
+    hands: [[10, 30], [-14, -17], [16, 4]],
     steps: [[[-48, -4], [46, -6]], [[-36, 20], [44, 14]], [[-10, -22], [-30, 18]]],
     names: ['Separar do osso', 'Desfiar', 'Desfiar'],
   },
@@ -115,9 +121,17 @@ export function benchPoint([x, y]) {
   return { x: BENCH.x + BENCH.scale * x, y: BENCH.y + BENCH.scale * y };
 }
 
-export function benchRisk(type) {
-  const [x, y, r, kind] = CUTS[type].risk;
-  return { ...benchPoint([x, y]), r: r * BENCH.scale, kind };
+function benchZone(point, kind) {
+  return { ...benchPoint(point), r: RISK_RADIUS[kind] * BENCH.scale, kind };
+}
+
+// Zonas de risco da etapa: sempre a mão de apoio, mais o osso em asa e coxa.
+export function benchRisks(piece, step = piece.step) {
+  const cut = CUTS[piece.type];
+  const hand = cut.hands[Math.max(0, Math.min(cut.hands.length - 1, step))];
+  const risks = [benchZone(hand, 'mao')];
+  if (cut.bone) risks.push(benchZone(cut.bone, 'osso'));
+  return risks;
 }
 
 export function benchStep(piece, step = piece.step) {
@@ -324,12 +338,12 @@ function distanceToSegment(point, a, b) {
   return Math.hypot(point.x - (a.x + fraction * dx), point.y - (a.y + fraction * dy));
 }
 
-function recordAccident(state, kind, at) {
+function recordAccident(state, risk, at) {
   state.accidents++;
   state.streak = 0;
   state.injuredUntil = at + TUNING.injuryMs;
   setFatigue(state, state.fatigue + TUNING.fatiguePerAccident);
-  emit(state, 'accident', at, { risk: kind });
+  emit(state, 'accident', at, { risk: risk.kind, x: risk.x, y: risk.y });
 }
 
 function sample(state, x, y, now) {
@@ -350,13 +364,15 @@ function sample(state, x, y, now) {
 
   const distance = Math.hypot(point.x - last.x, point.y - last.y);
   gesture.travel += distance;
-  const risk = benchRisk(gesture.piece.type);
-  const gap = distanceToSegment(risk, last, point) - risk.r;
   const hasty = distance > TUNING.hastySpeed * Math.max(1, elapsed - last.elapsed);
-  if (gap <= 0 || (hasty && gap <= TUNING.hastyMargin)) {
-    state.stroke = null;
-    shift.gesture = null;
-    recordAccident(state, risk.kind, elapsed);
+  for (const risk of benchRisks(gesture.piece)) {
+    const gap = distanceToSegment(risk, last, point) - risk.r;
+    if (gap <= 0 || (hasty && gap <= TUNING.hastyMargin)) {
+      state.stroke = null;
+      shift.gesture = null;
+      recordAccident(state, risk, elapsed);
+      return;
+    }
   }
 }
 

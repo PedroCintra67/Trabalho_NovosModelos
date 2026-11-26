@@ -2,7 +2,7 @@ import {
   WIDTH, HEIGHT, SHIFT_MS, HOURS, BENCH, TARGET, CUTS,
   createShift, advance, beginStroke, moveStroke, endStroke, cancelStroke,
   togglePiece, takeBreak, breakStatus, report, reflect, playable, grabbable,
-  benchStep, benchRisk, tolerance, TUNING,
+  benchStep, benchRisks, tolerance, TUNING,
 } from './engine.mjs';
 
 const byId = (id) => document.getElementById(id);
@@ -207,7 +207,8 @@ function drawBeltPiece(piece, highlight) {
   }
 }
 
-function drawRisk(risk) {
+// `side` é 1 para pôr a etiqueta à direita da zona e -1 para pô-la à esquerda.
+function drawRisk(risk, side) {
   if (risk.kind === 'mao') {
     context.save();
     context.translate(risk.x, risk.y + 2);
@@ -226,13 +227,28 @@ function drawRisk(risk) {
   context.strokeStyle = '#ff9c91';
   context.lineWidth = 2;
   context.stroke();
-  tag(risk.kind === 'mao' ? 'MÃO' : 'OSSO', risk.x + risk.r + 28, risk.y + 5, '#321f25', '#ffc0b6', 12);
+  tag(risk.kind === 'mao' ? 'MÃO' : 'OSSO', risk.x + side * (risk.r + 24), risk.y + 5, '#321f25', '#ffc0b6', 12);
+}
+
+// A mão de apoio desliza até a nova posição depois de cada corte
+// (muda na hora com movimento reduzido ou quando entra outra peça).
+let handView = null;
+function handOnBoard(risk, dt) {
+  const id = state.bench.id;
+  if (!handView || handView.id !== id || reducedMotion.matches) {
+    handView = { id, x: risk.x, y: risk.y };
+  } else {
+    const k = 1 - Math.exp(-dt / 50);
+    handView.x += (risk.x - handView.x) * k;
+    handView.y += (risk.y - handView.y) * k;
+  }
+  return { ...risk, x: handView.x, y: handView.y };
 }
 
 const board = new Path2D(`M${BENCH.x - 160} ${BENCH.y - 78} H${BENCH.x + 160} Q${BENCH.x + 172} ${BENCH.y - 78} ${BENCH.x + 172} ${BENCH.y - 66}
   V${BENCH.y + 90} H${BENCH.x - 172} V${BENCH.y - 66} Q${BENCH.x - 172} ${BENCH.y - 78} ${BENCH.x - 160} ${BENCH.y - 78}Z`);
 
-function drawBench(now) {
+function drawBench(now, dt) {
   shape(context, `M${BENCH.x - 178} ${BENCH.y - 70} H${BENCH.x + 178} V${BENCH.y + 98} H${BENCH.x - 178}Z`, '#0a161e88');
   shape(context, board, gradient(context, 0, BENCH.y - 78, 0, BENCH.y + 90, '#eef5f5', '#cbdadd', '#a9bec3'), '#5e7a84', 3);
   shape(context, `M${BENCH.x - 160} ${BENCH.y - 70} H${BENCH.x + 160}`, null, '#ffffffaa', 2);
@@ -280,7 +296,13 @@ function drawBench(now) {
     ellipse(context, b.x, b.y, 4.5, 4.5, '#d4ffff');
     label(context, String(piece.step + 1), a.x - 18, a.y - 6, '#0b3a44', 14);
   }
-  drawRisk(benchRisk(piece.type));
+  // Etiquetas do lado oposto à linha atual, para não cobri-la.
+  const line = benchStep(piece, Math.min(piece.step, piece.steps - 1));
+  const middle = (line.a.x + line.b.x) / 2;
+  for (const risk of benchRisks(piece)) {
+    const shown = risk.kind === 'mao' ? handOnBoard(risk, dt) : risk;
+    drawRisk(shown, risk.x > middle ? 1 : -1);
+  }
 
   const title = complete
     ? `${typeNames[piece.type].toUpperCase()} PRONTO · E PARA DEVOLVER`
@@ -394,7 +416,7 @@ function drawCoach() {
   let text = '';
   if (state.breakUntil !== null) text = '';
   else if (!state.bench) text = grabbable(state) ? 'Treino · E (ou o botão Pegar) traz a peça destacada' : '';
-  else if (state.bench.step < state.bench.steps) text = 'Treino · arraste de ponta a ponta, longe do vermelho';
+  else if (state.bench.step < state.bench.steps) text = 'Treino · arraste de ponta a ponta · a mão muda de lugar a cada corte';
   else text = 'Treino · peça pronta! E devolve à esteira';
   if (!text) return;
   tag(text, WIDTH / 2, 160, '#0b141def', '#ffcb73', 18);
@@ -421,7 +443,7 @@ function draw(now) {
   const target = running ? grabbable(state) : demo[2];
   const pieces = running ? state.pieces : demo;
   for (const piece of pieces) drawBeltPiece(piece, piece === target && !state.bench && state.breakUntil === null);
-  drawBench(now);
+  drawBench(now, dt);
   drawHands();
   drawParticles(dt);
   context.globalAlpha = .3 + state.fatigue * .6;
@@ -658,10 +680,7 @@ function presentEvent(event, now) {
         ? 'Acidente · a faca atingiu a mão de apoio'
         : 'Acidente · a faca bateu no osso e escapou';
       announce('danger', text, now, 3);
-      if (piece) {
-        const risk = benchRisk(piece.type);
-        spawnParticles(risk, risk, 30, ['#c2273b', '#8d1726', '#ff5a5a'], 120);
-      }
+      spawnParticles(event, event, 30, ['#c2273b', '#8d1726', '#ff5a5a'], 120);
       flash = 1;
       shake = 1;
       sounds.accident();
@@ -810,6 +829,7 @@ function start() {
   feedbackPriority = 0;
   seenEvents = 0;
   particles = [];
+  handView = null;
   flash = 0;
   shake = 0;
   keyboardAim = guideEnabled;
@@ -988,17 +1008,18 @@ function describeAim() {
   const line = benchStep(piece);
   const endKey = keyboardStroke ? keyboardEnd : nearestEnd();
   const point = line[endKey];
-  const risk = benchRisk(piece.type);
-  const riskName = risk.kind === 'mao' ? 'Mão de apoio' : 'Osso';
-  const insideRisk = Math.hypot(risk.x - aim.x, risk.y - aim.y) <= risk.r;
+  const risks = benchRisks(piece);
+  const insideRisk = risks.some(risk => Math.hypot(risk.x - aim.x, risk.y - aim.y) <= risk.r);
+  const riskText = risks.map(risk => `${risk.kind === 'mao' ? 'Mão de apoio' : 'Osso'}, centro `
+    + `${relativePosition(risk, point, 'da ponta')}, raio de ${Math.round(risk.r)} unidades`).join('. ');
   const aligned = Math.hypot(point.x - aim.x, point.y - aim.y) <= 12;
   const action = insideRisk ? 'Mira na zona de risco. Afaste-se com as setas.'
     : aligned ? (keyboardStroke ? 'Espaço encerra o traço.' : 'Espaço inicia o traço.')
     : 'Aproxime a mira da ponta com as setas. Pressione G para atualizar.';
   const end = keyboardStroke ? 'Ponta final' : 'Ponta mais próxima';
   guidance.textContent = `${typeNames[piece.type]}, etapa ${piece.step + 1} de ${piece.steps}: ${CUTS[piece.type].names[piece.step]}. `
-    + `${end} ${relativePosition(point, aim, 'da mira')}. ${riskName}, centro ${relativePosition(risk, point, 'da ponta')}, `
-    + `raio de ${Math.round(risk.r)} unidades. Margem aceita de ${Math.round(tolerance(state))} unidades. ${action}`;
+    + `${end} ${relativePosition(point, aim, 'da mira')}. ${riskText}. `
+    + `Margem aceita de ${Math.round(tolerance(state))} unidades. ${action}`;
 }
 
 guideToggle.addEventListener('click', () => {

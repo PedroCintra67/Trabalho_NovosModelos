@@ -5,9 +5,26 @@ import * as engine from '../src/engine.mjs';
 const {
   WIDTH, SHIFT_MS, HOUR_MS, TARGET, TUNING, RETURN_X, createShift, advance,
   beginStroke, moveStroke, endStroke, cancelStroke, report, reflect,
-  grabPiece, releasePiece, togglePiece, takeBreak, breakStatus, benchStep, benchRisk,
-  grabbable, tolerance,
+  grabPiece, releasePiece, togglePiece, takeBreak, breakStatus, benchStep, benchRisks,
+  grabbable, tolerance, CUTS,
 } = engine;
+
+const hand = state => benchRisks(state.bench).find(risk => risk.kind === 'mao');
+
+// Põe na bancada uma peça do tipo pedido, trocando o tipo da primeira peça da esteira.
+function benchOf(type) {
+  const state = createShift();
+  Object.assign(state.pieces[0], { type, steps: CUTS[type].steps.length });
+  grabPiece(state, 0);
+  return state;
+}
+
+function distanceToSegment(point, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
 
 // Traça a etapa atual da bancada; `offset` desloca o traço na perpendicular da linha.
 function traceStep(state, now, { reverse = false, offset = 0, duration = 260, samples = 4 } = {}) {
@@ -200,8 +217,7 @@ test('fatigue and accidents shrink the tolerance by at most 30%', () => {
 test('touching the hand or bone causes an accident and a short injury', () => {
   const state = createShift();
   grabPiece(state, 0);
-  const risk = benchRisk(state.bench.type);
-  assert.equal(risk.kind, 'mao');
+  const risk = hand(state);
   assert.equal(beginStroke(state, risk.x - risk.r - 15, risk.y, 100), 'stroke');
   moveStroke(state, risk.x + risk.r + 15, risk.y, 400);
   assert.equal(state.stroke, null);
@@ -223,7 +239,7 @@ test('a fast stroke away from the risk zones is not an accident', () => {
 test('a hasty stroke that grazes the risk zone is an accident', () => {
   const state = createShift();
   grabPiece(state, 0);
-  const risk = benchRisk(state.bench.type);
+  const risk = hand(state);
   const y = risk.y - risk.r - 6;
   beginStroke(state, risk.x - 80, y, 100);
   moveStroke(state, risk.x + 80, y, 120);
@@ -234,6 +250,54 @@ test('a hasty stroke that grazes the risk zone is an accident', () => {
   beginStroke(slow, risk.x - 80, y, 100);
   moveStroke(slow, risk.x + 80, y, 600);
   assert.equal(slow.accidents, 0);
+});
+
+test('asa and coxa also have a bone that causes accidents', () => {
+  for (const type of ['asa', 'coxa']) {
+    const state = benchOf(type);
+    const bone = benchRisks(state.bench).find(risk => risk.kind === 'osso');
+    beginStroke(state, bone.x - bone.r - 15, bone.y, 100);
+    moveStroke(state, bone.x + bone.r + 15, bone.y, 400);
+    assert.equal(state.accidents, 1, type);
+    assert.deepEqual(state.events.at(-1), {
+      kind: 'accident', at: 400, seq: state.events.length - 1, risk: 'osso', x: bone.x, y: bone.y,
+    });
+  }
+});
+
+test('every piece keeps a support hand that moves after each cut', () => {
+  for (const type of ['peito', 'asa', 'coxa']) {
+    const state = benchOf(type);
+    const positions = [];
+    while (state.bench.step < state.bench.steps) {
+      const risks = benchRisks(state.bench);
+      assert.equal(risks.filter(risk => risk.kind === 'mao').length, 1, type);
+      assert.equal(risks.some(risk => risk.kind === 'osso'), type !== 'peito', type);
+      positions.push(hand(state));
+      assert.match(traceStep(state, positions.length * 300), /^(clean|cut)$/, `${type}, etapa ${positions.length}`);
+    }
+    assert.equal(positions.length, CUTS[type].steps.length);
+    for (let i = 1; i < positions.length; i++) {
+      const moved = Math.hypot(positions[i].x - positions[i - 1].x, positions[i].y - positions[i - 1].y);
+      assert.ok(moved > 20, `${type}: a mão muda de lugar na etapa ${i + 1}`);
+    }
+  }
+});
+
+test('a stroke along each cut line stays clear of the hand and the bone', () => {
+  for (const [type, cut] of Object.entries(CUTS)) {
+    assert.equal(cut.hands.length, cut.steps.length, type);
+    cut.steps.forEach((_, step) => {
+      const piece = { type, step };
+      const { a, b } = benchStep(piece);
+      for (const risk of benchRisks(piece)) {
+        // A mão fica fora da faixa aceita; o osso, fora da margem de pressa.
+        const minimum = risk.kind === 'mao' ? TUNING.tolerance : TUNING.hastyMargin;
+        const gap = distanceToSegment(risk, a, b) - risk.r;
+        assert.ok(gap > minimum, `${type}, etapa ${step + 1}: ${risk.kind} a ${gap.toFixed(1)} da linha`);
+      }
+    });
+  }
 });
 
 test('strokes need a piece on the bench', () => {

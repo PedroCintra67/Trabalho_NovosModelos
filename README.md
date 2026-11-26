@@ -12,7 +12,7 @@ Na raiz do projeto, execute `python -m http.server 8000 --bind 127.0.0.1` e abra
 2. Na bancada, a peça fica parada. Arraste com o mouse ou o dedo ao longo de cada linha tracejada, em qualquer sentido. Peito e coxa têm três cortes e asa tem dois. A faixa clara em volta da linha mostra a margem aceita, que encolhe com a fadiga.
 3. **E** de novo devolve a peça à esteira. Completa, conta como processada. Incompleta, conta como mal processada e gera desconto.
 4. Peças que chegam ao fim da esteira sem ser pegas são **perdidas** e também geram desconto.
-5. Evite a **mão de apoio** e o **osso**, marcados em vermelho. Encostar neles, ou passar rápido demais muito perto, causa um acidente: a mão fica alguns instantes sem cortar e o tremor da faca aumenta até o fim do turno.
+5. Evite a **mão de apoio** e o **osso**, marcados em vermelho. Toda peça tem a mão de apoio, que muda de lugar a cada corte, como quem reposiciona a mão para segurar o frango. Asa e coxa também têm osso. Encostar neles, ou passar rápido demais muito perto, causa um acidente: a mão fica alguns instantes sem cortar e o tremor da faca aumenta até o fim do turno.
 6. **P** inicia uma **pausa NR-36**. A fadiga cai, mas a esteira continua e peças podem passar. É preciso devolver a peça da bancada antes da pausa, e há um intervalo entre pausas.
 7. **Escape** cancela o traço em andamento ou pausa o jogo.
 
