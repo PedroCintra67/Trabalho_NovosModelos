@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="171" height="181" viewBox="0 0 171 181">
+  <defs>
+    <linearGradient id="rubber" x2=".4" y2="1">
+      <stop stop-color="#82b7ba"/><stop offset=".6" stop-color="#417b85"/><stop offset="1" stop-color="#234956"/>
+    </linearGradient>
+    <pattern id="weave" width="6" height="5" patternUnits="userSpaceOnUse">
+      <path d="m0 2 3 1 3-1M0 5l3-1 3 1" fill="none" stroke="#c2dfe0" stroke-width=".65" opacity=".34"/>
+    </pattern>
+    <path id="hand" d="M40 141 49 111Q51 96 61 79L61 57 59 41Q58 33 64 31Q70 29 73 37L81 56 88 49 102 17Q106 8 112 11Q117 14 114 22L106 50 124 12Q128 3 135 7Q140 10 136 20L124 53 142 27Q148 17 154 21Q159 24 154 34L138 62 152 49Q159 42 164 46Q169 51 162 58L145 79Q138 92 123 104L106 116 100 143Z"/>
+  </defs>
+  <path d="M43 133q28-6 58 5l-14 43H21Z" fill="#254a55" stroke="#173440" stroke-width="3"/>
+  <use href="#hand" fill="url(#rubber)" stroke="#142f3a" stroke-width="3" stroke-linejoin="round"/>
+  <use href="#hand" fill="url(#weave)"/>
+  <path d="M48 120Q78 113 108 122L100 143Q69 136 40 141Z" fill="#244955" stroke="#93c4c8" stroke-width="1.5"/>
+  <path d="M53 126Q73 120 101 127M48 131Q73 125 98 132" fill="none" stroke="#689297" stroke-width="1"/>
+  <path d="M81 56Q85 66 81 76M106 50l-5 15m23-12-8 17m22-8-9 14M81 90Q99 79 118 84M73 101q18-7 35-7" fill="none" stroke="#28545e" stroke-width="2" stroke-linecap="round"/>
+  <path d="M90 54 106 19M112 58l18-40m-4 47 22-34M66 38l5 17M89 83q13-7 25-6" fill="none" stroke="#b2d6d5" stroke-opacity=".62" stroke-width="1.5" stroke-linecap="round"/>
+</svg>

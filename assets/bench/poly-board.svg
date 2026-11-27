@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="392" height="192" viewBox="0 0 392 192">
+  <defs>
+    <linearGradient id="steel" x2="0" y2="1">
+      <stop stop-color="#95b6bd"/><stop offset=".45" stop-color="#476772"/><stop offset="1" stop-color="#142e39"/>
+    </linearGradient>
+    <linearGradient id="board" x2="0" y2="1">
+      <stop stop-color="#e0e8df"/><stop offset="1" stop-color="#a5bcb5"/>
+    </linearGradient>
+    <pattern id="grain" width="47" height="29" patternUnits="userSpaceOnUse">
+      <path d="M3 4l16 -2m8 11 13 1M7 24l19 -4" fill="none" stroke="#496f6b" stroke-opacity=".24" stroke-width=".75"/>
+      <path d="m15 5 18 1M1 16l12 -1m16 10 17 -2" fill="none" stroke="#fff" stroke-opacity=".39" stroke-width=".7"/>
+    </pattern>
+  </defs>
+  <path d="M18 5h356l18 174-10 13H10L0 179Z" fill="#0b2028" opacity=".85"/>
+  <path d="M19 1h354l16 172-9 14H12l-9 -14Z" fill="url(#steel)" stroke="#193741" stroke-width="3"/>
+  <path d="M25 7h342l10 153q1 10-9 10H24q-10 0-9-10Z" fill="url(#board)" stroke="#65837d" stroke-width="2"/>
+  <path d="M25 7h342l10 153q1 10-9 10H24q-10 0-9-10Z" fill="url(#grain)"/>
+  <path d="M34 15h324l9 139q0 7-7 7H32q-7 0-7-7Z" fill="none" stroke="#527770" stroke-opacity=".54" stroke-width="2"/>
+  <path d="M34 17h324M28 159h336M15 177h362" fill="none" stroke="#f0ffff" stroke-opacity=".45"/>
+  <g fill="#adc5c6" stroke="#284b56" stroke-width="1.5">
+    <circle cx="12" cy="166" r="4"/><circle cx="380" cy="166" r="4"/>
+  </g>
+  <path d="m10 168 4-4m364 4 4-4" stroke="#284b56"/>
+</svg>

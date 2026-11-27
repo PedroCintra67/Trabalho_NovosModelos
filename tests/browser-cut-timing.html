@@ -1,0 +1,138 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Queued cut input regression</title>
+<body>
+<script>
+  const page = document.createElement('iframe');
+  page.addEventListener('load', run, { once: true });
+  page.src = '../index.html';
+  document.body.append(page);
+
+  function run() {
+    try {
+      const game = page.contentWindow;
+      const el = id => game.document.getElementById(id);
+      let now = 1000;
+      let nextFrame;
+      Object.defineProperty(game.performance, 'now', { value: () => now });
+      game.requestAnimationFrame = callback => (nextFrame = callback, 1);
+      game.cancelAnimationFrame = () => { nextFrame = undefined; };
+      el('audio').setAttribute('aria-pressed', 'false');
+
+      function tick(at) {
+        now = at;
+        nextFrame(now);
+      }
+
+      function send(event, timestamp = now) {
+        Object.defineProperty(event, 'timeStamp', { value: timestamp });
+        el('line').dispatchEvent(event);
+      }
+
+      function key(code, timestamp, repeat = false) {
+        send(new game.KeyboardEvent('keydown', { code, key: code, repeat, bubbles: true, cancelable: true }), timestamp);
+      }
+
+      function click(timestamp) {
+        send(new game.MouseEvent('click', { bubbles: true }), timestamp);
+      }
+
+      function check(condition, message) {
+        if (!condition) throw new Error(message);
+      }
+
+      el('start').click();
+      key('KeyE');
+      tick(2500);
+      key('Space', 2350, true);
+      check(el('points').textContent === '0 pontos', 'Space repeat must not consume the cut');
+      key('Space', 2350);
+      check(el('points').textContent === '100 pontos', 'queued Space retains perfect after a later frame');
+
+      let slatX;
+      const fixture = game.Path2D;
+      game.Path2D = class extends fixture {
+        constructor(path) {
+          super(path);
+          const slat = typeof path === 'string' && /^M(-?\d+(?:\.\d+)?) 165 l-108 280$/.exec(path);
+          if (slat && slatX === undefined) slatX = Number(slat[1]);
+        }
+      };
+
+      for (const [frames, cut] of [[[1699], click], [[1600, 1700], at => key('Space', at)]]) {
+        const start = now;
+        el('restart').click();
+        key('KeyE');
+        for (const elapsed of frames) {
+          slatX = undefined;
+          tick(start + elapsed);
+          const expectedSlat = -220 + elapsed * 70 / 1000 % 62;
+          check(Math.abs(slatX - expectedSlat) < 0.000001, 'belt must render at full elapsed time across timeout');
+        }
+        now = start + 1700;
+        cut(start + 1350);
+        click(start + 1350);
+        check(el('points').textContent === '100 pontos', 'delayed cut retains perfect exactly once in either frame schedule');
+        check(el('losses').textContent.includes('0 acidentes'), 'valid delayed input clears the provisional accident');
+      }
+
+      let start = now;
+      el('restart').click();
+      key('KeyE');
+      tick(start + 1700);
+      click(start + 1600);
+      check(el('points').textContent === '0 pontos', 'an input at the deadline must not score');
+      check(el('losses').textContent.includes('1 acidente'), 'an exact-deadline input leaves the accident intact');
+      key('KeyE');
+      click(start + 1350);
+      check(el('points').textContent === '0 pontos' && el('losses').textContent.includes('1 acidente'),
+        'return locks the outcome before a queued cut arrives');
+
+      for (const dispatchWhilePaused of [false, true]) {
+        start = now;
+        el('restart').click();
+        key('KeyE');
+        if (!dispatchWhilePaused) tick(start + 1600);
+        now = start + 1700;
+        key('Escape');
+        now += 1000;
+        if (!dispatchWhilePaused) el('resume').click();
+        click(start + 2000);
+        check(el('points').textContent === '0 pontos' && el('losses').textContent.includes('1 acidente'),
+          'input generated during pause cannot correct the timeout');
+        key('Space', start + 1350);
+        if (dispatchWhilePaused) {
+          check(!el('paused').hidden, 'a queued cut must not resume the game');
+          el('resume').click();
+        }
+        check(el('points').textContent === '100 pontos' && el('losses').textContent.includes('0 acidentes'),
+          'input generated before pause retains its score across pause and resume');
+        check(!el('deductions').textContent.includes('12,50'), 'correcting the timeout clears its deduction');
+      }
+
+      start = now;
+      el('restart').click();
+      key('KeyE');
+      now = start + 1000;
+      key('Escape');
+      now += 1000;
+      el('resume').click();
+      tick(start + 2400);
+      key('Escape');
+      now += 1000;
+      el('resume').click();
+      key('Space', start + 1800);
+      click(start + 2900);
+      click(start + 3500);
+      click(NaN);
+      check(el('points').textContent === '0 pontos', 'during-pause, future and invalid timestamps must be ignored');
+      click(start + 2350);
+      check(el('points').textContent === '100 pontos', 'input between pauses uses only the preceding pause offset');
+
+      document.body.dataset.cutTiming = 'PASS';
+    } catch (error) {
+      document.body.dataset.cutTiming = `FAIL ${error.message}`;
+    }
+  }
+</script>
+</body>

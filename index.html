@@ -38,6 +38,8 @@
           <span>Processadas / meta</span>
           <strong><span id="processed">0</span><small> / <span id="target">18</span></small></strong>
           <span id="losses">0 perdidas · 0 acidentes</span>
+          <span id="points">0 pontos</span>
+          <span id="deductions">Descontos simulados: R$ 0,00</span>
         </div>
       </div>
 
@@ -50,15 +52,16 @@
         <div id="briefing" class="briefing">
           <p class="eyebrow">Simulação de trabalho</p>
           <h2>Oito horas<br>em 90 segundos.</h2>
-          <p>Pegue o frango da esteira, faça os cortes na bancada e devolva a peça antes que outras passem direto. A esteira acelera a cada hora.</p>
+          <p>Faça um corte por peça e devolva-a à esteira. A esteira mantém a velocidade e a fadiga acelera o anel de corte.</p>
+          <button class="primary" type="button" id="start">Iniciar turno <span aria-hidden="true">→</span></button>
           <ol class="steps">
             <li><kbd>E</kbd> pega a peça destacada</li>
-            <li>Arraste ao longo de cada linha tracejada</li>
+            <li>Quando aparecer <strong>CORTE AGORA</strong> na faixa tracejada, use Espaço, Cortar ou clique na cena</li>
             <li><kbd>E</kbd> devolve a peça pronta</li>
             <li><kbd>P</kbd> faz uma pausa NR-36</li>
           </ol>
-          <button class="primary" type="button" id="start">Iniciar turno <span aria-hidden="true">→</span></button>
         </div>
+        <button class="action" type="button" id="cut" aria-describedby="cut-hint" hidden>Cortar</button>
         <div id="paused" class="paused" hidden>
           <p class="eyebrow">Jogo pausado</p>
           <button class="primary" type="button" id="resume">Continuar <span aria-hidden="true">→</span></button>
@@ -71,16 +74,16 @@
           <button class="action" type="button" id="grab" disabled>Pegar peça <kbd>E</kbd></button>
           <button class="action" type="button" id="break" disabled>Pausa NR-36 <kbd>P</kbd></button>
         </div>
-        <p><span class="cut-key" aria-hidden="true"></span> Arraste pela linha na bancada</p>
-        <p><span class="risk-key" aria-hidden="true">!</span> Evite a mão de apoio e o osso</p>
+        <p id="cut-hint"><span class="cut-key" aria-hidden="true"></span> Quando aparecer CORTE AGORA, use Espaço na cena, o botão Cortar ou clique na cena.</p>
+        <p><span class="risk-key" aria-hidden="true">!</span> Deixar o tempo acabar causa um acidente</p>
       </div>
     </section>
     <div class="below" id="actions" hidden>
       <details id="keyboard">
         <summary>Controles de teclado</summary>
         <p>E pega a peça mais à direita da esteira e, com a bancada ocupada, devolve a peça. Clique direito também funciona. P inicia uma pausa NR-36: a fadiga cai, mas a esteira continua.</p>
-        <p>Use as setas para mover a mira 12 unidades por toque, ou Shift com as setas para mover 3. Espaço inicia e encerra o traço. Escape cancela o traço ou pausa o jogo.</p>
-        <p id="guide-help">A orientação complementa os controles de corte. Quando ativa, pressione G para ouvir a posição da etapa atual e da zona de risco.</p>
+        <p>Com foco na cena, Espaço faz um corte. Escape pausa ou retoma o jogo.</p>
+        <p id="guide-help">A orientação anuncia a janela de corte perfeito. Ative o som do jogo para ouvir o sinal.</p>
         <button class="secondary" type="button" id="guide-toggle" aria-describedby="guide-help" aria-pressed="false">Orientação de teclado</button>
       </details>
       <div class="below-buttons">
@@ -105,7 +108,8 @@
             <div><dt>Meta de peças</dt><dd id="r-target"></dd></div>
             <div><dt>Peças perdidas na esteira</dt><dd id="r-lost"></dd></div>
             <div><dt>Peças mal processadas</dt><dd id="r-badReturns"></dd></div>
-            <div><dt>Cortes limpos</dt><dd id="r-cleanCuts"></dd></div>
+            <div><dt>Cortes perfeitos</dt><dd id="r-cleanCuts"></dd></div>
+            <div><dt>Pontos de corte</dt><dd id="r-points"></dd></div>
             <div><dt>Melhor sequência limpa</dt><dd id="r-bestStreak"></dd></div>
           </dl>
         </section>
