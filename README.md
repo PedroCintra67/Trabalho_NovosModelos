@@ -1,24 +1,40 @@
 # Turno na Esteira
 
-Jogo de precisão para navegador sobre o trabalho repetitivo em uma linha de corte de frango. Um turno fictício de oito horas dura 75 segundos. Conforme a esteira acelera, o placar da fábrica cresce e o trabalhador acumula desgaste.
+Jogo de navegador sobre o trabalho repetitivo numa linha de corte de frango. Um turno fictício de oito horas dura 90 segundos. A esteira acelera a cada hora, as peças se acumulam e o trabalhador acumula desgaste. O jogo mostra a troca entre produção, saúde e pagamento.
 
 ## Jogar localmente
 
-Na raiz do projeto, execute `python -m http.server 8000 --bind 127.0.0.1` e abra `http://127.0.0.1:8000/` em um navegador de computador. A interface usa módulos JavaScript e roda por HTTP, sem instalação de pacotes.
+Na raiz do projeto, execute `python -m http.server 8000 --bind 127.0.0.1` e abra `http://127.0.0.1:8000/` no navegador. A interface usa módulos JavaScript e roda por HTTP, sem instalar pacotes.
 
-Com mouse ou trackpad, pressione e arraste rapidamente ao longo da linha tracejada da peça enquanto ela passa pela estação. Você pode traçar nos dois sentidos. Evite as áreas sinalizadas da mão de apoio e do osso. Após um acidente, o turno segue com perda de precisão. O relatório final compara produção, meta, fadiga, erros, acidentes e pagamento. Os valores representam uma economia fictícia do jogo.
+## Como jogar
 
-No teclado, as setas movem a mira. Espaço inicia ou encerra o traço e Escape cancela. Ative **Orientação de teclado** e pressione G para consultar a peça e a posição da mira. Use **Som do jogo** para ligar ou desligar os efeitos sonoros.
+1. **E** (ou clique direito, ou o botão **Pegar peça**) tira da esteira a peça mais à direita ao alcance, destacada em amarelo, e a coloca na bancada.
+2. Na bancada, a peça fica parada. Arraste com o mouse ou o dedo ao longo de cada linha tracejada, em qualquer sentido. Peito e coxa têm três cortes e asa tem dois. A faixa clara em volta da linha mostra a margem aceita, que encolhe com a fadiga.
+3. **E** de novo devolve a peça à esteira. Completa, conta como processada. Incompleta, conta como mal processada e gera desconto.
+4. Peças que chegam ao fim da esteira sem ser pegas são **perdidas** e também geram desconto.
+5. Evite a **mão de apoio** e o **osso**, marcados em vermelho. Toda peça tem a mão de apoio, que muda de lugar a cada corte, como quem reposiciona a mão para segurar o frango. Asa e coxa também têm osso. Encostar neles, ou passar rápido demais muito perto, causa um acidente: a mão fica alguns instantes sem cortar e o tremor da faca aumenta até o fim do turno.
+6. **P** inicia uma **pausa NR-36**. A fadiga cai, mas a esteira continua e peças podem passar. É preciso devolver a peça da bancada antes da pausa, e há um intervalo entre pausas.
+7. **Escape** cancela o traço em andamento ou pausa o jogo.
+
+Cortes limpos em sequência rendem um pequeno bônus. A cada hora, o supervisor compara a produção com a meta. O relatório final mostra produção, meta, perdas, fadiga máxima, pausas, acidentes e pagamento, com um comentário sobre o resultado. O melhor valor líquido fica salvo no navegador.
+
+### Teclado e acessibilidade
+
+As setas movem a mira (12 unidades; com Shift, 3) e Espaço inicia e encerra o traço. Ative **Orientação de teclado** e pressione **G** para ouvir a posição da etapa atual, da zona de risco e da margem aceita. **Som do jogo** liga ou desliga os efeitos sonoros. O jogo respeita a preferência do sistema por movimento reduzido.
 
 ## Estrutura
 
 - `index.html` contém as telas e os controles.
 - `styles/` contém a apresentação visual.
-- `src/engine.mjs` contém as regras do turno, do corte e do placar.
-- `src/ui.mjs` conecta os controles, a cena e o áudio ao motor.
+- `src/engine.mjs` contém as regras puras do turno: esteira, bancada, cortes, pausas e relatório. Os números de balanceamento ficam no objeto `TUNING`.
+- `src/ui.mjs` conecta os controles, a cena, as partículas e o áudio ao motor.
 - `tests/` cobre as regras do jogo com o executor de testes do Node.js.
 
 Execute `node --test` para verificar o motor.
+
+## Contexto
+
+A NR-36, publicada pelo Ministério do Trabalho em 2013, regula a segurança e a saúde no trabalho em empresas de abate e processamento de carnes. Entre outras medidas, ela prevê pausas de recuperação psicofisiológica ao longo da jornada. Os valores de pagamento, metas e descontos do jogo são fictícios.
 
 ## GitHub Pages
 
