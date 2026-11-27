@@ -62,8 +62,9 @@ meter::-moz-meter-bar { background: #f3b55c; }
   display: grid; place-items: center; width: 100%; aspect-ratio: 1000 / 520; max-height: 65vh; min-height: 180px;
   background: linear-gradient(180deg, #122430, #253b48 49%, #0d1e2a);
 }
-canvas { display: block; width: min(100%, 125vh); height: auto; aspect-ratio: 1000 / 520; touch-action: none; cursor: crosshair; }
+canvas { display: block; width: min(100%, 125vh); height: auto; aspect-ratio: 1000 / 520; touch-action: none; cursor: pointer; }
 canvas:focus-visible { outline-offset: -3px; }
+#cut { position: absolute; right: 16px; bottom: 16px; }
 .briefing {
   position: absolute; top: clamp(15px, 6%, 48px); left: max(clamp(16px, 4%, 65px), calc((100% - 125vh) / 2 + 24px));
   width: min(390px, 55%); padding: clamp(12px, 2vw, 24px);
@@ -93,7 +94,7 @@ kbd {
   display: inline-block; min-width: 1.6em; padding: 1px 5px; text-align: center;
   font: 700 .8rem/1.4 var(--mono); color: var(--ink); background: #0b141d; border: 1px solid #5a707b; border-bottom-width: 2px;
 }
-.steps { margin: 0 0 17px; padding-left: 1.3em; color: var(--ink); line-height: 1.8; font-size: .92rem; }
+.steps { margin: 14px 0 0; padding-left: 1.3em; color: var(--ink); line-height: 1.8; font-size: .92rem; }
 .hud small { font-size: .55em; color: var(--muted); }
 #break-state { color: var(--muted); font: 600 .7rem/1.3 var(--mono); }
 #break-state[data-state="ready"] { color: var(--cyan); }
@@ -108,7 +109,7 @@ kbd {
 .record { margin: -8px 0 18px; color: var(--cyan); font: 700 .9rem/1.4 var(--mono); }
 .record:empty { display: none; }
 .source { margin-top: 18px; color: var(--muted); font-size: .8rem; line-height: 1.4; max-width: 80ch; }
-.cut-key { width: 20px; border-top: 2px dashed var(--cyan); }
+.cut-key { width: 15px; height: 15px; border: 2px dashed #77f1cb; border-radius: 50%; }
 .risk-key { display: grid; place-items: center; width: 18px; height: 18px; border: 1px solid var(--danger); color: var(--danger); }
 .below { align-items: flex-start; margin-top: 10px; }
 summary { min-height: 44px; padding: 10px 0; color: var(--cyan); }
@@ -123,6 +124,13 @@ details p { color: var(--muted); margin: 0 0 8px; max-width: 45ch; }
 .result-grid dl div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--edge); }
 .result-grid dd { font-family: var(--mono); font-weight: 700; }
 .result-grid .net { color: var(--amber); font-weight: 700; }
+
+@media (max-height: 760px) and (min-width: 621px) {
+  .briefing { top: 15px; padding: 16px 20px; }
+  .briefing h2 { font-size: clamp(1.72rem, 4vw, 2.75rem); }
+  .briefing > p:not(.eyebrow) { margin: 8px 0 12px; }
+  .steps { line-height: 1.5; }
+}
 
 @media (max-width: 620px) {
   .masthead { align-items: flex-end; }

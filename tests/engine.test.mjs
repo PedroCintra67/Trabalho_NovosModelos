@@ -4,59 +4,14 @@ import * as engine from '../src/engine.mjs';
 
 const {
   WIDTH, SHIFT_MS, HOUR_MS, TARGET, TUNING, RETURN_X, createShift, advance,
-  beginStroke, moveStroke, endStroke, cancelStroke, report, reflect,
-  grabPiece, releasePiece, togglePiece, takeBreak, breakStatus, benchStep, benchRisks,
-  grabbable, tolerance, CUTS,
+  cutPiece, report, reflect, grabPiece, releasePiece, togglePiece, takeBreak,
+  breakStatus, grabbable,
 } = engine;
-
-const hand = state => benchRisks(state.bench).find(risk => risk.kind === 'mao');
-
-// Põe na bancada uma peça do tipo pedido, trocando o tipo da primeira peça da esteira.
-function benchOf(type) {
-  const state = createShift();
-  Object.assign(state.pieces[0], { type, steps: CUTS[type].steps.length });
-  grabPiece(state, 0);
-  return state;
-}
-
-function distanceToSegment(point, a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
-}
-
-// Traça a etapa atual da bancada; `offset` desloca o traço na perpendicular da linha.
-function traceStep(state, now, { reverse = false, offset = 0, duration = 260, samples = 4 } = {}) {
-  const line = benchStep(state.bench);
-  const [start, end] = reverse ? [line.b, line.a] : [line.a, line.b];
-  const length = Math.hypot(end.x - start.x, end.y - start.y);
-  const nx = -(end.y - start.y) / length * offset;
-  const ny = (end.x - start.x) / length * offset;
-  if (beginStroke(state, start.x + nx, start.y + ny, now) !== 'stroke') return null;
-  for (let i = 1; i <= samples; i++) {
-    const x = start.x + nx + (end.x - start.x) * i / samples;
-    const y = start.y + ny + (end.y - start.y) * i / samples;
-    const at = now + duration * i / samples;
-    if (i === samples) return endStroke(state, x, y, at);
-    moveStroke(state, x, y, at);
-    if (!state.stroke) return null;
-  }
-}
-
-function processBench(state, now) {
-  let at = now;
-  while (state.bench.step < state.bench.steps) {
-    assert.match(traceStep(state, at), /^(clean|cut)$/);
-    at += 300;
-  }
-  return at;
-}
 
 const kinds = state => state.events.map(event => event.kind);
 
 test('exports the browser interface and a grabbable first piece', () => {
-  for (const name of ['createShift', 'advance', 'beginStroke', 'moveStroke', 'endStroke', 'cancelStroke',
+  for (const name of ['createShift', 'advance', 'cutPiece',
     'grabPiece', 'releasePiece', 'togglePiece', 'takeBreak', 'report', 'reflect', 'playable']) {
     assert.equal(typeof engine[name], 'function', name);
   }
@@ -97,25 +52,23 @@ test('advancing is independent of frame rate', () => {
   assert.equal(jumped.elapsed, 60000);
 });
 
-test('belt speed rises in hourly steps and spawns get closer', () => {
+test('belt speed and spacing stay steady across shift hours', () => {
   const state = createShift();
-  const speeds = [];
+  const speed = state.speed;
+  const first = state.pieces[0];
+  advance(state, 1000);
+  assert.equal(first.x, 320 + speed);
   const spawns = [];
-  const types = new Map();
   let lastId = 0;
-  for (let now = 0; now < SHIFT_MS; now += 25) {
+  for (let now = 1000; now < SHIFT_MS; now += 25) {
     advance(state, now);
-    speeds.push(state.speed);
-    for (const piece of state.pieces) types.set(piece.type, piece.steps);
-    const newest = state.pieces.reduce((max, piece) => Math.max(max, piece.id), 0);
-    if (newest !== lastId) spawns.push(now);
-    lastId = newest;
+    assert.equal(state.speed, speed);
+    const newest = Math.max(...state.pieces.map(piece => piece.id));
+    if (newest > lastId) spawns.push(now);
+    lastId = Math.max(lastId, newest);
   }
-  assert.equal(new Set(speeds).size, 8);
-  assert.ok(speeds.every((speed, i) => i === 0 || speed >= speeds[i - 1]));
-  assert.ok(spawns.at(-1) - spawns.at(-2) < (spawns[1] - spawns[0]) * 0.6);
-  assert.deepEqual([...types.keys()].sort(), ['asa', 'coxa', 'peito']);
-  assert.deepEqual([types.get('peito'), types.get('asa'), types.get('coxa')], [3, 2, 3]);
+  assert.ok(spawns.length >= TARGET);
+  assert.equal(new Set(spawns.slice(1).map((at, i) => at - spawns[i])).size, 1);
 });
 
 test('E grabs the rightmost reachable piece and the bench holds one piece', () => {
@@ -137,175 +90,159 @@ test('E grabs the rightmost reachable piece and the bench holds one piece', () =
   assert.equal(empty.events.at(-1).kind, 'empty');
 });
 
-test('each valid stroke advances one step and a complete return counts as processed', () => {
-  const state = createShift();
-  assert.equal(togglePiece(state, 0), 'grab');
-  const piece = state.bench;
-  assert.equal(piece.type, 'peito');
-  assert.equal(piece.steps, 3);
-  const at = processBench(state, 100);
-  assert.equal(piece.step, 3);
-  assert.equal(state.events.at(-1).complete, true);
-  assert.equal(beginStroke(state, 400, 400, at), 'complete');
-  assert.equal(togglePiece(state, at + 50), 'done');
-  assert.equal(state.processed, 1);
-  assert.equal(state.bench, null);
-  assert.ok(piece.returned);
-  assert.equal(piece.x, RETURN_X);
-  assert.notEqual(grabbable(state), piece);
-  advance(state, at + 20000);
-  assert.ok(!state.pieces.includes(piece));
-  assert.ok(!state.events.some(event => event.kind === 'lost' && event.id === piece.id),
-    'a returned piece leaving the belt is not lost');
-});
-
-test('cuts work in either direction', () => {
-  for (const reverse of [false, true]) {
+test('one cut attempt per piece scores perfect, good, or too early', () => {
+  for (const [at, outcome, points, returned] of [
+    [1350, 'perfect', 100, 'done'],
+    [1150, 'good', 60, 'done'],
+    [1599, 'good', 60, 'done'],
+    [100, 'error', 0, 'bad'],
+  ]) {
     const state = createShift();
-    grabPiece(state, 0);
-    assert.match(traceStep(state, 100, { reverse }), /^(clean|cut)$/);
-    assert.equal(state.bench.step, 1);
+    assert.equal(togglePiece(state, 0), 'grab');
+    const piece = state.bench;
+    assert.equal(cutPiece(state, at), outcome);
+    assert.equal(cutPiece(state, at + 1), 'resolved');
+    assert.equal(report(state).points, points);
+    assert.equal(togglePiece(state, at + 2), returned);
+    assert.equal(state.bench, null);
+    assert.equal(piece.x, RETURN_X);
+    assert.notEqual(grabbable(state), piece);
+    assert.equal(state.processed, Number(returned === 'done'));
+    assert.equal(state.errors, Number(outcome === 'error'));
+    advance(state, 20000);
+    assert.ok(!state.events.some(event => event.kind === 'lost' && event.id === piece.id));
   }
 });
 
-test('returning an unfinished piece counts as badly processed', () => {
+test('a queued cut keeps its original quality after a newer frame', () => {
+  const state = createShift(100);
+  grabPiece(state, 100);
+  advance(state, 1600);
+  assert.equal(cutPiece(state, 1450), 'perfect');
+  assert.equal(state.elapsed, 1500);
+  assert.equal(cutPiece(state, 1451), 'resolved');
+  assert.equal(report(state).points, 100);
+});
+
+test('pre-deadline input corrects a timeout across frame schedules without rewinding the belt', () => {
+  for (const frames of [[1699], [1600, 1700], [1600, 23000]]) {
+    const late = createShift();
+    const prompt = createShift();
+    for (const state of [late, prompt]) grabPiece(state, 0);
+    assert.equal(cutPiece(prompt, 1350), 'perfect');
+    advance(prompt, frames.at(-1));
+    for (const at of frames) advance(late, at);
+    assert.equal(report(late).accidents, 1);
+    const positions = late.pieces.map(piece => piece.x);
+
+    assert.equal(cutPiece(late, 1350), 'perfect');
+    assert.equal(late.elapsed, frames.at(-1));
+    assert.deepEqual(late.pieces.map(piece => piece.x), positions);
+    assert.deepEqual(late.pieces, prompt.pieces);
+    assert.deepEqual(late.events.filter(event => event.kind !== 'perfect').map(event => event.kind),
+      prompt.events.filter(event => event.kind !== 'perfect').map(event => event.kind));
+    assert.equal(late.injuredUntil, 0);
+    assert.equal(late.streak, prompt.streak);
+    assert.ok(Math.abs(late.fatigue - prompt.fatigue) < 1e-9);
+    assert.ok(Math.abs(late.maxFatigue - prompt.maxFatigue) < 1e-9);
+    assert.ok(late.events.every((event, i) => event.seq === i && (i === 0 || event.at >= late.events[i - 1].at)));
+    assert.equal(cutPiece(late, 1350), 'resolved');
+    assert.equal(report(late).points, 100);
+    assert.equal(report(late).deductions, report(prompt).deductions);
+  }
+});
+
+test('a cut generated before the current piece was grabbed cannot cut it', () => {
   const state = createShift();
   grabPiece(state, 0);
-  traceStep(state, 100);
+  releasePiece(state, 100);
+  grabPiece(state, 6500);
+  assert.equal(cutPiece(state, 300), null);
+  assert.equal(state.bench.cut, null);
+});
+
+test('returning before a cut counts as badly processed and cancels the timer', () => {
+  const state = createShift();
+  assert.equal(cutPiece(state, 0), 'no-piece');
+  grabPiece(state, 0);
   assert.equal(releasePiece(state, 500), 'bad');
-  assert.deepEqual([state.processed, state.badReturns], [0, 1]);
   assert.equal(releasePiece(state, 600), null);
+  advance(state, 2000);
+  assert.deepEqual([state.processed, state.badReturns, state.accidents], [0, 1, 0]);
 });
 
-test('the cut accepts a generous margin but rejects sloppy strokes', () => {
-  const near = createShift();
-  grabPiece(near, 0);
-  assert.equal(traceStep(near, 100, { offset: 25 }), 'cut');
+test('timeout at the exact deadline injures once and leaves a penalty after dressing and rest', () => {
+  const state = createShift(100);
+  const stepped = createShift(100);
+  for (const shift of [state, stepped]) grabPiece(shift, 11100);
+  const deadline = state.bench.timing.deadline;
+  for (let now = 11116; now < 27000; now += 16) advance(stepped, now);
+  advance(stepped, 27000);
+  advance(state, 27000);
+  assert.deepEqual(stepped.events, state.events);
+  const relevant = state.events.filter(event => event.at >= 11000);
+  assert.deepEqual(relevant.slice(0, 5).map(event => event.kind), ['grab', 'hour', 'accident', 'hour', 'lost']);
+  assert.equal(relevant[2].at, deadline);
+  assert.equal(state.injuredUntil, deadline + TUNING.injuryMs);
+  assert.equal(stepped.injuredUntil, state.injuredUntil);
+  assert.ok(state.events.every((event, i) => i === 0 || event.at >= state.events[i - 1].at));
+  assert.ok(Math.abs(stepped.fatigue - state.fatigue) < 1e-9);
 
-  const clean = createShift();
-  grabPiece(clean, 0);
-  assert.equal(traceStep(clean, 100, { offset: 6 }), 'clean');
-
-  for (const options of [{ offset: -60 }, { duration: 2200 }]) {
-    const state = createShift();
-    grabPiece(state, 0);
-    assert.equal(traceStep(state, 100, options), 'error');
-    assert.deepEqual([state.bench.step, state.errors], [0, 1]);
-  }
-
-  // Traço curto demais (só metade da linha).
-  const short = createShift();
-  grabPiece(short, 0);
-  const { a, b } = benchStep(short.bench);
-  beginStroke(short, a.x, a.y, 100);
-  assert.equal(endStroke(short, (a.x + b.x) / 2, (a.y + b.y) / 2, 300), 'error');
-
-  // Clique sem movimento é ignorado.
-  beginStroke(short, a.x, a.y, 400);
-  assert.equal(endStroke(short, a.x + 5, a.y, 450), null);
-  assert.equal(short.errors, 1);
+  const exact = createShift();
+  grabPiece(exact, 0);
+  assert.equal(cutPiece(exact, 1600), 'accident');
+  assert.equal(cutPiece(exact, 1601), 'injured');
+  assert.equal(report(exact).deductions, 1250);
+  assert.equal(releasePiece(exact, 1700), 'bad');
+  assert.equal(grabPiece(exact, 1750), 'blocked');
+  assert.equal(takeBreak(exact, 1800), 'break');
+  advance(exact, 5300);
+  assert.equal(exact.fatigue, 0);
+  assert.equal(grabPiece(exact, 6300), 'grab');
+  assert.equal(cutPiece(exact, 7470), 'perfect');
+  assert.equal(exact.accidents, 1);
+  assert.equal(report(exact).deductions, 1330);
 });
 
-test('fatigue and accidents shrink the tolerance by at most 30%', () => {
+test('the first successful grab uses wider windows once per shift', () => {
   const state = createShift();
-  assert.equal(tolerance(state), TUNING.tolerance);
-  state.fatigue = 1;
-  state.accidents = 1;
-  assert.ok(Math.abs(tolerance(state) - TUNING.tolerance * 0.7) < 1e-9);
+  advance(state, 12000);
+  assert.notEqual(grabbable(state).id, 0);
+  assert.equal(grabPiece(state, 12000), 'grab');
+  assert.equal(state.bench.guided, true);
+  const guided = state.bench.timing;
+  const width = timing => timing.perfectUntil - timing.perfectFrom;
+  assert.equal(cutPiece(state, guided.perfectFrom + 1), 'perfect');
+  releasePiece(state, 13500);
+  assert.equal(grabPiece(state, 13500), 'grab');
+  assert.equal(state.bench.guided, false);
+  const regular = state.bench.timing;
+  assert.equal(guided.deadline - guided.goodFrom, TUNING.goodLeadMs + TUNING.guidedGoodLeadMs);
+  assert.equal(regular.deadline - regular.goodFrom, TUNING.goodLeadMs);
+  assert(width(guided) - width(regular) >= TUNING.guidedPerfectMs);
+
+  const restarted = createShift(14000);
+  grabPiece(restarted, 14000);
+  assert.equal(restarted.bench.guided, true);
 });
 
-test('touching the hand or bone causes an accident and a short injury', () => {
-  const state = createShift();
-  grabPiece(state, 0);
-  const risk = hand(state);
-  assert.equal(beginStroke(state, risk.x - risk.r - 15, risk.y, 100), 'stroke');
-  moveStroke(state, risk.x + risk.r + 15, risk.y, 400);
-  assert.equal(state.stroke, null);
-  assert.equal(state.accidents, 1);
-  assert.equal(state.events.at(-1).kind, 'accident');
-  assert.equal(state.events.at(-1).risk, 'mao');
-  assert.equal(state.bench.step, 0);
-  assert.equal(beginStroke(state, 400, 400, 500), 'injured');
-  assert.match(traceStep(state, 100 + TUNING.injuryMs + 400), /^(clean|cut)$/);
-});
+test('fatigue shortens the ring and narrows the perfect window with a playable floor', () => {
+  const fresh = createShift();
+  grabPiece(fresh, 0);
+  assert.equal(cutPiece(fresh, 1280), 'perfect');
 
-test('a fast stroke away from the risk zones is not an accident', () => {
-  const state = createShift();
-  grabPiece(state, 0);
-  assert.match(traceStep(state, 100, { duration: 40, samples: 2 }), /^(clean|cut)$/);
-  assert.equal(state.accidents, 0);
-});
+  const tired = createShift();
+  grabPiece(tired, 0);
+  releasePiece(tired, 0);
+  tired.fatigue = 1;
+  grabPiece(tired, 6500);
+  assert.equal(cutPiece(tired, 7130), 'good');
 
-test('a hasty stroke that grazes the risk zone is an accident', () => {
-  const state = createShift();
-  grabPiece(state, 0);
-  const risk = hand(state);
-  const y = risk.y - risk.r - 6;
-  beginStroke(state, risk.x - 80, y, 100);
-  moveStroke(state, risk.x + 80, y, 120);
-  assert.equal(state.accidents, 1);
-
-  const slow = createShift();
-  grabPiece(slow, 0);
-  beginStroke(slow, risk.x - 80, y, 100);
-  moveStroke(slow, risk.x + 80, y, 600);
-  assert.equal(slow.accidents, 0);
-});
-
-test('asa and coxa also have a bone that causes accidents', () => {
-  for (const type of ['asa', 'coxa']) {
-    const state = benchOf(type);
-    const bone = benchRisks(state.bench).find(risk => risk.kind === 'osso');
-    beginStroke(state, bone.x - bone.r - 15, bone.y, 100);
-    moveStroke(state, bone.x + bone.r + 15, bone.y, 400);
-    assert.equal(state.accidents, 1, type);
-    assert.deepEqual(state.events.at(-1), {
-      kind: 'accident', at: 400, seq: state.events.length - 1, risk: 'osso', x: bone.x, y: bone.y,
-    });
-  }
-});
-
-test('every piece keeps a support hand that moves after each cut', () => {
-  for (const type of ['peito', 'asa', 'coxa']) {
-    const state = benchOf(type);
-    const positions = [];
-    while (state.bench.step < state.bench.steps) {
-      const risks = benchRisks(state.bench);
-      assert.equal(risks.filter(risk => risk.kind === 'mao').length, 1, type);
-      assert.equal(risks.some(risk => risk.kind === 'osso'), type !== 'peito', type);
-      positions.push(hand(state));
-      assert.match(traceStep(state, positions.length * 300), /^(clean|cut)$/, `${type}, etapa ${positions.length}`);
-    }
-    assert.equal(positions.length, CUTS[type].steps.length);
-    for (let i = 1; i < positions.length; i++) {
-      const moved = Math.hypot(positions[i].x - positions[i - 1].x, positions[i].y - positions[i - 1].y);
-      assert.ok(moved > 20, `${type}: a mão muda de lugar na etapa ${i + 1}`);
-    }
-  }
-});
-
-test('a stroke along each cut line stays clear of the hand and the bone', () => {
-  for (const [type, cut] of Object.entries(CUTS)) {
-    assert.equal(cut.hands.length, cut.steps.length, type);
-    cut.steps.forEach((_, step) => {
-      const piece = { type, step };
-      const { a, b } = benchStep(piece);
-      for (const risk of benchRisks(piece)) {
-        // A mão fica fora da faixa aceita; o osso, fora da margem de pressa.
-        const minimum = risk.kind === 'mao' ? TUNING.tolerance : TUNING.hastyMargin;
-        const gap = distanceToSegment(risk, a, b) - risk.r;
-        assert.ok(gap > minimum, `${type}, etapa ${step + 1}: ${risk.kind} a ${gap.toFixed(1)} da linha`);
-      }
-    });
-  }
-});
-
-test('strokes need a piece on the bench', () => {
-  const state = createShift();
-  assert.equal(beginStroke(state, 500, 400, 0), 'no-piece');
-  assert.equal(state.stroke, null);
-  assert.deepEqual(state.events.at(-1), { kind: 'blocked', at: 0, seq: 0, reason: 'no-piece' });
-  assert.equal(beginStroke(state, -5, 400, 0), null);
+  const exhaustedAfterInjury = createShift();
+  exhaustedAfterInjury.fatigue = 1;
+  exhaustedAfterInjury.accidents = 1;
+  grabPiece(exhaustedAfterInjury, 0);
+  assert.equal(cutPiece(exhaustedAfterInjury, 734), 'perfect');
 });
 
 test('a NR-36 break recovers fatigue, blocks work and has a cooldown', () => {
@@ -316,7 +253,7 @@ test('a NR-36 break recovers fatigue, blocks work and has a cooldown', () => {
   const tired = state.fatigue;
   assert.equal(takeBreak(state, 30000), 'break');
   assert.equal(grabPiece(state, 30100), 'blocked');
-  assert.equal(beginStroke(state, 500, 400, 30200), 'break');
+  assert.equal(cutPiece(state, 30200), 'break');
   advance(state, 30000 + TUNING.breakMs);
   assert.ok(state.fatigue < tired - 0.2);
   assert.equal(state.breakUntil, null);
@@ -333,6 +270,17 @@ test('a NR-36 break recovers fatigue, blocks work and has a cooldown', () => {
   assert.equal(busy.events.at(-1).reason, 'busy');
 });
 
+test('a coarse tick that crosses the end of a rest recovers before adding work fatigue', () => {
+  const coarse = createShift();
+  const fine = createShift();
+  for (const state of [coarse, fine]) takeBreak(state, 0);
+  advance(fine, TUNING.breakMs);
+  advance(fine, TUNING.breakMs + 1000);
+  advance(coarse, TUNING.breakMs + 1000);
+  assert.ok(fine.fatigue > 0);
+  assert.equal(coarse.fatigue, fine.fatigue);
+});
+
 test('hour events report the expected production', () => {
   const state = createShift();
   advance(state, HOUR_MS * 2 + 1);
@@ -344,9 +292,11 @@ test('hour events report the expected production', () => {
 
 test('streaks of clean cuts pay a bonus and the report caps deductions', () => {
   const state = createShift();
-  grabPiece(state, 0);
-  processBench(state, 100);
-  releasePiece(state, 1500);
+  for (const at of [0, 7000, 12000]) {
+    assert.equal(grabPiece(state, at), 'grab');
+    assert.equal(cutPiece(state, at + 1350), 'perfect');
+    assert.equal(releasePiece(state, at + 1400), 'done');
+  }
   assert.equal(state.cleanCuts, 3);
   assert.equal(state.bestStreak, 3);
   assert.ok(state.bonus > 0);
@@ -355,7 +305,7 @@ test('streaks of clean cuts pay a bonus and the report caps deductions', () => {
   state.lost = 3;
   state.badReturns = 1;
   const result = report(state);
-  assert.equal(result.gross, 6400 + 60 + state.bonus);
+  assert.equal(result.gross, 6400 + 3 * 60 + state.bonus);
   assert.equal(result.deductions, 2 * 1250 + 3 * 40 + 80);
   assert.equal(result.net, result.gross - result.deductions);
   assert.equal(result.target, TARGET);
@@ -373,18 +323,15 @@ test('the reflection reflects the trade-off between output and health', () => {
   assert.match(reflect({ ...base, breaks: 2 }), /2 pausas/);
 });
 
-test('a piece left on the bench at the end of the shift is lost and strokes are cancelled', () => {
+test('a piece left on the bench at the end of the shift is lost', () => {
   const state = createShift();
-  advance(state, SHIFT_MS - 2000);
-  state.pieces.push({ id: 999, type: 'asa', x: 500, y: 265, step: 0, steps: 2, returned: false, origin: 500 - 1e9 });
-  state.bench = state.pieces.pop();
-  beginStroke(state, 400, 400, SHIFT_MS - 1000);
-  assert.ok(state.stroke);
+  assert.equal(grabPiece(state, SHIFT_MS - 100), 'grab');
+  const { id } = state.bench;
   advance(state, SHIFT_MS);
-  assert.equal(state.stroke, null);
   assert.equal(state.bench, null);
-  assert.ok(state.events.some(event => event.kind === 'lost' && event.id === 999));
-  cancelStroke(state);
+  assert.ok(state.events.some(event => event.kind === 'lost' && event.id === id));
+  assert.equal(state.accidents, 0);
+  assert.equal(cutPiece(state, SHIFT_MS), null);
 });
 
 test('pieces that leave without being grabbed are lost exactly once', () => {

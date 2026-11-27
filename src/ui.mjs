@@ -1,8 +1,7 @@
 import {
-  WIDTH, HEIGHT, SHIFT_MS, HOURS, BENCH, TARGET, CUTS,
-  createShift, advance, beginStroke, moveStroke, endStroke, cancelStroke,
+  WIDTH, HEIGHT, SHIFT_MS, HOURS, BENCH, TARGET,
+  createShift, advance, cutPiece,
   togglePiece, takeBreak, breakStatus, report, reflect, playable, grabbable,
-  benchStep, benchRisks, tolerance, TUNING,
 } from './engine.mjs';
 
 const byId = (id) => document.getElementById(id);
@@ -130,10 +129,10 @@ function drawBelt(offset) {
   shape(context, 'M0 230 L1000 174 M0 431 L1000 309', null, '#162c39', 8);
   shape(context, 'M0 235 L1000 179 M0 425 L1000 305', null, '#c9e3e8a0', 2);
   shape(context, 'M0 409 L1000 298', null, '#88e4e876', 2);
-  shape(context, 'M96 426 L364 396 L359 421 L92 457Z', '#241e18', '#b18143');
+  shape(context, 'M75 429 L274 406 L269 431 L71 459Z', '#241e18', '#b18143');
   context.save();
-  context.transform(1, -.128, -.13, 1, 104, 447);
-  label(context, 'ATENÇÃO  /  ESTEIRA EM MOVIMENTO', 0, 0, '#ffca70', 12);
+  context.transform(1, -.128, -.13, 1, 83, 449);
+  label(context, 'ESTEIRA EM MOVIMENTO', 0, 0, '#ffca70', 12);
   context.restore();
 }
 
@@ -144,11 +143,19 @@ const meat = Object.fromEntries(Object.entries({
 }).map(([type, data]) => [type, new Path2D(data)]));
 const flesh = gradient(context, -18, -40, 12, 39, '#f8d9ca', '#d8a69b', '#a56869', '#6f434b');
 const shade = gradient(context, 0, -25, 0, 20, '#ffffff51', '#ffffff00');
+const cutAngles = { peito: .13, asa: -.21, coxa: -.08 };
+const cutMasks = Object.fromEntries(Object.entries(cutAngles).map(([type, angle]) => {
+  const end = 100 * Math.tan(angle);
+  return [type, [
+    new Path2D(`M-100 -100 H100 V${end} L-100 ${-end}Z`),
+    new Path2D(`M-100 ${-end} L100 ${end} V100 H-100Z`),
+  ]];
+}));
+const cutSucceeded = (cut) => cut === 'perfect' || cut === 'good';
 const typeNames = { peito: 'Peito', asa: 'Asa', coxa: 'Coxa' };
 
 // Desenha a carne em coordenadas locais (o contexto já está transladado e escalado).
-function drawMeat(type, done) {
-  ellipse(context, 3, 24, 70, 17, '#142d3b55');
+function drawMeatSurface(type) {
   shape(context, meat[type], flesh, '#5f4248', 2);
   context.save();
   context.clip(meat[type]);
@@ -157,33 +164,41 @@ function drawMeat(type, done) {
   for (let i = 0; i < 42; i++) {
     ellipse(context, (i * 31 % 130) - 65, (i * 17 % 72) - 36, 1, .7, i % 2 ? '#f6d7c589' : '#6e43444d');
   }
-  // Cortes já feitos: sulcos escuros com fiapos claros.
-  for (let i = 0; i < done; i++) {
-    const [[ax, ay], [bx, by]] = CUTS[type].steps[i];
-    const route = `M${ax} ${ay} L${bx} ${by}`;
-    shape(context, route, null, '#4a1c27', 4.5);
-    shape(context, route, null, '#ffd9cc99', 1.2);
-    const length = Math.hypot(bx - ax, by - ay);
-    for (let f = 1; f < 6; f++) {
-      const t = f / 6;
-      const x = ax + (bx - ax) * t;
-      const y = ay + (by - ay) * t;
-      const nx = -(by - ay) / length * 4;
-      const ny = (bx - ax) / length * 4;
-      shape(context, `M${x - nx} ${y - ny} L${x + nx} ${y + ny}`, null, '#f8d2c4aa', 1);
-    }
-  }
   context.restore();
 }
 
+function drawMeat(type, split = false) {
+  ellipse(context, 3, 24, 70, 17, '#142d3b55');
+  if (!split) {
+    drawMeatSurface(type);
+    return;
+  }
+
+  const angle = cutAngles[type];
+  const edgeY = 100 * Math.tan(angle);
+  // Both halves share the original silhouette and move perpendicular to the cut.
+  cutMasks[type].forEach((mask, index) => {
+    const offset = index === 0 ? -3 : 3;
+    context.save();
+    context.translate(-Math.sin(angle) * offset, Math.cos(angle) * offset);
+    context.clip(mask);
+    drawMeatSurface(type);
+    context.clip(meat[type]);
+    shape(context, `M-100 ${-edgeY} L100 ${edgeY}`, null, '#b57870', 7);
+    shape(context, `M-100 ${-edgeY} L100 ${edgeY}`, null, '#f7c7ac', 3);
+    context.restore();
+  });
+}
+
 function drawBeltPiece(piece, highlight) {
-  const { x, y, type, returned, step, steps } = piece;
+  const { x, y, type, returned, cut } = piece;
+  const complete = cutSucceeded(cut);
   context.save();
   context.translate(x, y);
   if (returned) {
     context.scale(.85, .85);
     shape(context, new Path2D('M-80 -38 Q-82 -48 -70 -48 H70 Q82 -48 80 -38 L76 38 Q75 46 66 46 H-66 Q-75 46 -76 38 Z'),
-      step >= steps ? '#dfe8eacc' : '#9aa8acaa', '#7d97a0', 2);
+      complete ? '#dfe8eacc' : '#9aa8acaa', '#7d97a0', 2);
   }
   if (highlight) {
     context.save();
@@ -192,11 +207,10 @@ function drawBeltPiece(piece, highlight) {
     shape(context, meat[type], null, '#ffcb73', 4);
     context.restore();
   }
-  drawMeat(type, returned ? step : 0);
+  drawMeat(type, returned && complete);
   context.restore();
 
   if (returned) {
-    const complete = step >= steps;
     tag(complete ? 'PRONTA' : 'INCOMPLETA', x, y - 44, complete ? '#173328' : '#3a2a12', complete ? '#9ff0c4' : '#ffcb73', 11);
   } else if (highlight) {
     tag(`E · PEGAR ${type.toUpperCase()}`, x, y - 46, '#3a2a12', '#ffcb73', 12);
@@ -207,61 +221,39 @@ function drawBeltPiece(piece, highlight) {
   }
 }
 
-// `side` é 1 para pôr a etiqueta à direita da zona e -1 para pô-la à esquerda.
-function drawRisk(risk, side) {
-  if (risk.kind === 'mao') {
-    context.save();
-    context.translate(risk.x, risk.y + 2);
-    context.scale(risk.r / 17, risk.r / 17);
-    shape(context, 'M-8 15 L-14 4 Q-17 -3 -14 -4 Q-12 -6 -8 0 L-10 -10 Q-10 -14 -6 -13 L-2 -4 -4 -16 Q-2 -19 1 -16 L4 -6 4 -16 Q8 -18 9 -14 L10 -3 13 -10 Q17 -11 16 -6 L15 6 9 16Z', '#24383e', '#ffa39a', 1.6);
-    context.restore();
-  } else {
-    shape(context, `M${risk.x - 7} ${risk.y + 4} l14 -8`, null, '#fff0d8', 5);
-    ellipse(context, risk.x - 7, risk.y + 4, 4, 4, '#fff0d8');
-    ellipse(context, risk.x + 7, risk.y - 4, 4, 4, '#fff0d8');
-  }
-  context.beginPath();
-  context.arc(risk.x, risk.y, risk.r, 0, Math.PI * 2);
-  context.fillStyle = '#ff6b5e1c';
-  context.fill();
-  context.strokeStyle = '#ff9c91';
-  context.lineWidth = 2;
-  context.stroke();
-  tag(risk.kind === 'mao' ? 'MÃO' : 'OSSO', risk.x + side * (risk.r + 24), risk.y + 5, '#321f25', '#ffc0b6', 12);
-}
-
-// A mão de apoio desliza até a nova posição depois de cada corte
-// (muda na hora com movimento reduzido ou quando entra outra peça).
-let handView = null;
-function handOnBoard(risk, dt) {
-  const id = state.bench.id;
-  if (!handView || handView.id !== id || reducedMotion.matches) {
-    handView = { id, x: risk.x, y: risk.y };
-  } else {
-    const k = 1 - Math.exp(-dt / 50);
-    handView.x += (risk.x - handView.x) * k;
-    handView.y += (risk.y - handView.y) * k;
-  }
-  return { ...risk, x: handView.x, y: handView.y };
-}
-
 const board = new Path2D(`M${BENCH.x - 160} ${BENCH.y - 78} H${BENCH.x + 160} Q${BENCH.x + 172} ${BENCH.y - 78} ${BENCH.x + 172} ${BENCH.y - 66}
   V${BENCH.y + 90} H${BENCH.x - 172} V${BENCH.y - 66} Q${BENCH.x - 172} ${BENCH.y - 78} ${BENCH.x - 160} ${BENCH.y - 78}Z`);
 
-function drawBench(now, dt) {
-  shape(context, `M${BENCH.x - 178} ${BENCH.y - 70} H${BENCH.x + 178} V${BENCH.y + 98} H${BENCH.x - 178}Z`, '#0a161e88');
-  shape(context, board, gradient(context, 0, BENCH.y - 78, 0, BENCH.y + 90, '#eef5f5', '#cbdadd', '#a9bec3'), '#5e7a84', 3);
-  shape(context, `M${BENCH.x - 160} ${BENCH.y - 70} H${BENCH.x + 160}`, null, '#ffffffaa', 2);
-  for (let i = 0; i < 14; i++) {
-    const x = BENCH.x - 150 + i * 23;
-    shape(context, `M${x} ${BENCH.y - 50 + (i * 37) % 90} l${12 + i % 3 * 6} ${-3 + i % 4}`, null, '#8fa3a955', 1);
-  }
+const benchAssets = Object.fromEntries(['poly-board', 'support-glove', 'knife-glove'].map(name => {
+  const image = new Image();
+  image.addEventListener('load', () => {
+    if (!running || paused) draw(performance.now());
+  });
+  image.src = new URL(`../assets/bench/${name}.svg`, import.meta.url);
+  return [name, image];
+}));
 
+function drawAsset(name, x, y) {
+  const image = benchAssets[name];
+  if (image.naturalWidth) context.drawImage(image, x, y);
+}
+
+const IMPACT_MS = 68;
+const STRIKE_MS = 244;
+let strike = null;
+
+function drawBench(strikeAge) {
+  drawAsset('poly-board', BENCH.x - 196, BENCH.y - 81);
+  drawAsset('support-glove', BENCH.x - 284, BENCH.y - 52);
+  if (state.accidents) {
+    shape(context, 'M290 430 312 414 327 430 305 446Z', '#e6e1ca', '#626b64', 1.5);
+    shape(context, 'M303 429h11m-5-5v10', null, '#504941', 2);
+  }
   const piece = state.bench;
   if (!piece) {
-    label(context, 'BANCADA VAZIA', BENCH.x - 56, BENCH.y - 4, '#5e7a84', 15);
-    if (running && grabbable(state) && state.breakUntil === null) {
-      label(context, 'E · pegar peça', BENCH.x - 56, BENCH.y + 18, '#a0712a', 14);
+    label(context, 'BANCADA VAZIA', BENCH.x - 56, BENCH.y - 4, '#34515b', 15);
+    if (running && grabbable(state) && state.breakUntil === null && state.elapsed >= state.injuredUntil) {
+      label(context, 'E · pegar peça', BENCH.x - 56, BENCH.y + 18, '#694812', 14);
     }
     return;
   }
@@ -269,49 +261,46 @@ function drawBench(now, dt) {
   context.save();
   context.translate(BENCH.x, BENCH.y);
   context.scale(BENCH.scale, BENCH.scale);
-  drawMeat(piece.type, piece.step);
+  const complete = cutSucceeded(piece.cut);
+  drawMeat(piece.type, complete && strikeAge >= IMPACT_MS);
   context.restore();
 
-  const cut = CUTS[piece.type];
-  const complete = piece.step >= piece.steps;
-  for (let i = piece.step + 1; i < piece.steps; i++) {
-    const { a, b } = benchStep(piece, i);
-    context.setLineDash([4, 6]);
-    shape(context, `M${a.x} ${a.y} L${b.x} ${b.y}`, null, '#e9ffff55', 1.5);
-    context.setLineDash([]);
+  let instruction;
+  if (piece.cut === null) {
+    const { startedAt, goodFrom, perfectFrom, perfectUntil, deadline } = piece.timing;
+    const radius = (at) => 16 + 57 * (deadline - at) / (deadline - startedAt);
+    const band = (from, until, color, dashed = false) => {
+      context.beginPath();
+      context.arc(BENCH.x, BENCH.y, (radius(from) + radius(until)) / 2, 0, 2 * Math.PI);
+      context.lineWidth = radius(from) - radius(until);
+      context.strokeStyle = color;
+      context.setLineDash(dashed ? [3, 3] : []);
+      context.stroke();
+      context.setLineDash([]);
+    };
+    band(goodFrom, deadline, '#102631b5');
+    band(perfectFrom, perfectUntil, '#0b252b');
+    band(perfectFrom, perfectUntil, '#77f1cb', true);
+    const elapsed = state.elapsed;
+    const perfect = elapsed >= perfectFrom && elapsed <= perfectUntil;
+    instruction = perfect ? 'CORTE AGORA' : elapsed >= goodFrom ? 'BOM CORTE' : 'AGUARDE O ANEL';
+    const ring = radius(state.elapsed);
+    context.beginPath();
+    context.arc(BENCH.x, BENCH.y, ring, 0, 2 * Math.PI);
+    context.lineWidth = 4;
+    context.strokeStyle = '#0a1720';
+    context.stroke();
+    context.lineWidth = 2;
+    context.strokeStyle = '#ffffff';
+    context.stroke();
+  } else {
+    instruction = complete ? 'PRONTA · E PARA DEVOLVER' : 'INCOMPLETA · E PARA DEVOLVER';
   }
-  if (!complete) {
-    const { a, b } = benchStep(piece);
-    const route = `M${a.x} ${a.y} L${b.x} ${b.y}`;
-    const margin = tolerance(state);
-    context.lineCap = 'round';
-    shape(context, route, null, '#8de5ed24', margin * 2);
-    shape(context, route, null, '#8de5ed2e', margin * 2 * TUNING.cleanDeviation);
-    context.lineCap = 'butt';
-    shape(context, route, null, '#092831', 6);
-    context.setLineDash([8, 5]);
-    shape(context, route, null, '#a3ffff', 3);
-    context.setLineDash([]);
-    ellipse(context, a.x, a.y, 4.5, 4.5, '#d4ffff');
-    ellipse(context, b.x, b.y, 4.5, 4.5, '#d4ffff');
-    label(context, String(piece.step + 1), a.x - 18, a.y - 6, '#0b3a44', 14);
-  }
-  // Etiquetas do lado oposto à linha atual, para não cobri-la.
-  const line = benchStep(piece, Math.min(piece.step, piece.steps - 1));
-  const middle = (line.a.x + line.b.x) / 2;
-  for (const risk of benchRisks(piece)) {
-    const shown = risk.kind === 'mao' ? handOnBoard(risk, dt) : risk;
-    drawRisk(shown, risk.x > middle ? 1 : -1);
-  }
+  const benchLabel = piece.guided && piece.cut === null ? 'PRIMEIRA PEÇA GUIADA' : typeNames[piece.type].toUpperCase();
+  tag(`${benchLabel} · ${instruction}`, BENCH.x, BENCH.y - 86, '#0b2630', '#a3ffff', 13);
+}
 
-  const title = complete
-    ? `${typeNames[piece.type].toUpperCase()} PRONTO · E PARA DEVOLVER`
-    : `${typeNames[piece.type].toUpperCase()} · ETAPA ${piece.step + 1}/${piece.steps} · ${cut.names[piece.step].toUpperCase()}`;
-  const pulse = complete && !reducedMotion.matches ? .6 + .4 * Math.sin(now / 160) : 1;
-  context.globalAlpha = pulse;
-  tag(title, BENCH.x, BENCH.y - 86, complete ? '#3a2a12' : '#0b2630', complete ? '#ffcb73' : '#a3ffff', 13);
-  context.globalAlpha = 1;
-
+function drawDressing() {
   if (state.elapsed < state.injuredUntil) {
     shape(context, board, '#6b0f1a55');
     const seconds = ((state.injuredUntil - state.elapsed) / 1000).toFixed(1).replace('.', ',');
@@ -319,38 +308,27 @@ function drawBench(now, dt) {
   }
 }
 
-const glove = gradient(context, 3, -47, 52, 73, '#91a5a8', '#52676c', '#202e35');
-const steel = gradient(context, -103, -170, 25, -33, '#acced9', '#466575', '#e4f3f2');
-function drawHands() {
-  context.save();
-  context.translate(215, 476);
-  shape(context, 'M-59 82 L-36 24 -25 -5 -36 -31 Q-41 -43 -32 -45 Q-26 -48 -17 -35 L-9 -25 -15 -59 Q-17 -69 -8 -70 Q0 -70 3 -61 L11 -31 8 -73 Q7 -82 17 -82 Q25 -81 26 -71 L31 -39 31 -72 Q32 -82 41 -79 Q47 -77 48 -66 L49 -36 53 -59 Q55 -69 62 -66 Q69 -65 68 -52 L64 -13 Q61 10 44 28 L30 78Z',
-    glove, '#182b34', 3);
-  shape(context, 'M-36 24 Q5 19 44 28 L35 56 Q-1 48 -47 53Z', '#192e3c', '#6c8995', 2);
-  shape(context, 'M-17 -27 L-6 -10 Q13 -20 43 -17 M5 -1 Q22 -8 42 -5 M-3 10 L24 4', null, '#263e48', 2);
-  if (state.accidents) {
-    shape(context, 'M-2 -20 L9 -15 16 -22 26 -16 38 -21 35 -9 20 -6 11 -10 2 -5Z', '#751e2e', '#ff8d81', 2);
-    ellipse(context, 23, 2, 2, 4, '#b3474a');
-    ellipse(context, 30, 8, 2, 2, '#9d3b48');
-  }
-  context.restore();
+const blade = new Path2D('M-106 0 Q-119 -9 -107 -29 L55 -33 84 -14 91 -14 91 5 72 6 55 0Z');
+const steel = gradient(context, 0, -33, 0, 0, '#d9ece8', '#718d95', '#e2f3ed');
 
+function drawKnife(strikeAge) {
+  const phase = strikeAge < IMPACT_MS
+    ? strikeAge / IMPACT_MS
+    : Math.max(0, 1 - (strikeAge - IMPACT_MS - 26) / (STRIKE_MS - IMPACT_MS - 26));
+  const reach = Math.min(1, phase) ** (strikeAge < IMPACT_MS ? 2 : 3);
+  const angle = state.bench ? cutAngles[state.bench.type] : 0;
+  const tremorLevel = state.fatigue + Math.min(state.accidents, 2) * .18;
+  const tremor = reducedMotion.matches ? 0 : Math.sin(state.elapsed / 38) * tremorLevel * .035;
   context.save();
-  context.translate(915, 492);
-  context.scale(.8, .8);
-  const tremorLevel = (state.fatigue + Math.min(state.accidents, 2) * .18) * (reducedMotion.matches ? 0 : 1);
-  context.rotate(Math.sin(state.elapsed / 38) * tremorLevel * .04);
-  shape(context, 'M160 36 L91 -16 43 -43 13 -44 Q-11 -40 -11 -14 L2 26 62 64 123 94Z', glove, '#192b34', 3);
-  shape(context, 'M-2 16 L-19 7 -97 -135 -111 -187 Q-69 -170 -54 -139 L23 -10 31 12 18 29Z', steel, '#203743', 3);
-  shape(context, 'M-102 -174 L-80 -138 19 12', null, '#e2f5f5', 2);
-  shape(context, 'M-28 -19 L-3 -31 41 34 41 47 26 56 13 47Z', '#243945', '#101c26', 3);
-  ellipse(context, 18, 32, 4, 4, '#7d929a');
-  shape(context, 'M13 -24 Q26 -32 41 -21 L66 -6 60 11 Q52 20 42 11 L28 2 Q15 6 8 -4 Q4 -16 13 -24Z', glove, '#243943', 2);
-  shape(context, 'M50 13 L47 30 M64 16 L61 39 M77 24 L74 48 M91 -15 L77 44 64 63', null, '#2a404b', 3);
+  context.translate(BENCH.x + 188 * (1 - reach), BENCH.y + 32 * (1 - reach));
+  context.rotate(angle * reach + (-.51 + tremor) * (1 - reach));
+  shape(context, blade, steel, '#264650', 2);
+  shape(context, 'M-104 -2 H55 M-99 -25 53 -29', null, '#f1f9f5', 1.4);
+  drawAsset('knife-glove', 84, -66);
   context.restore();
 }
 
-// Partículas: fiapos de carne nos cortes, gotas no acidente.
+// Partículas do acidente.
 let particles = [];
 function spawnParticles(a, b, count, colors, spread) {
   if (reducedMotion.matches) return;
@@ -380,9 +358,9 @@ function drawParticles(dt) {
 }
 
 const demo = [
-  { id: -1, x: 230, y: 265, type: 'peito', returned: false, step: 0, steps: 3 },
-  { id: -2, x: 470, y: 265, type: 'asa', returned: true, step: 2, steps: 2 },
-  { id: -3, x: 760, y: 265, type: 'coxa', returned: false, step: 0, steps: 3 },
+  { id: -1, x: 230, y: 265, type: 'peito', returned: false, cut: null },
+  { id: -2, x: 470, y: 265, type: 'asa', returned: true, cut: 'perfect' },
+  { id: -3, x: 760, y: 265, type: 'coxa', returned: false, cut: null },
 ];
 const vignette = context.createRadialGradient(500, 255, 160, 500, 255, 570);
 vignette.addColorStop(0, '#08152200');
@@ -392,16 +370,14 @@ let running = false;
 let paused = false;
 let pausedAt = 0;
 let pauseOffset = 0;
+const pauses = [];
 let frame = 0;
-let activePointer = null;
-let previousPointer = null;
-let keyboardStroke = false;
-let keyboardAim = false;
 let guideEnabled = false;
-let aim = { x: BENCH.x, y: BENCH.y };
-let beltOffset = 0;
+let guideInPerfect = false;
+let lastBeltDistance = 0;
 let slatDistance = 0;
 let lastFrame = 0;
+let wallStartedAt = 0;
 let lastDraw = 0;
 let feedbackUntil = 0;
 let feedbackPriority = 0;
@@ -410,17 +386,6 @@ let flash = 0;
 let shake = 0;
 
 const gameTime = (timestamp) => timestamp - pauseOffset;
-
-function drawCoach() {
-  if (!running || state.hour > 0 || state.processed >= 2) return;
-  let text = '';
-  if (state.breakUntil !== null) text = '';
-  else if (!state.bench) text = grabbable(state) ? 'Treino · E (ou o botão Pegar) traz a peça destacada' : '';
-  else if (state.bench.step < state.bench.steps) text = 'Treino · arraste de ponta a ponta · a mão muda de lugar a cada corte';
-  else text = 'Treino · peça pronta! E devolve à esteira';
-  if (!text) return;
-  tag(text, WIDTH / 2, 160, '#0b141def', '#ffcb73', 18);
-}
 
 function drawBreak() {
   if (state.breakUntil === null) return;
@@ -439,34 +404,24 @@ function draw(now) {
     context.translate((Math.random() - .5) * shake * 12, (Math.random() - .5) * shake * 12);
   }
   context.drawImage(background, 0, 0);
-  drawBelt(beltOffset);
+  drawBelt(reducedMotion.matches ? 0 : state.elapsed * state.speed / 1000);
   const target = running ? grabbable(state) : demo[2];
   const pieces = running ? state.pieces : demo;
-  for (const piece of pieces) drawBeltPiece(piece, piece === target && !state.bench && state.breakUntil === null);
-  drawBench(now, dt);
-  drawHands();
+  for (const piece of pieces) drawBeltPiece(piece, piece === target && !state.bench && state.breakUntil === null && state.elapsed >= state.injuredUntil);
+  const strikeAge = strike && strike.id === state.bench?.id && !reducedMotion.matches
+    ? state.elapsed - strike.startedAt : Infinity;
+  drawBench(strikeAge);
+  drawKnife(strikeAge);
+  drawDressing();
   drawParticles(dt);
   context.globalAlpha = .3 + state.fatigue * .6;
   context.fillStyle = vignette;
   context.fillRect(0, 0, WIDTH, HEIGHT);
   context.globalAlpha = 1;
-  const points = state.stroke?.points;
-  if (points?.length > 1) {
-    context.beginPath();
-    context.moveTo(points[0].x, points[0].y);
-    for (const point of points.slice(1)) context.lineTo(point.x, point.y);
-    context.strokeStyle = '#caffff';
-    context.lineWidth = 2.5;
-    context.stroke();
-  }
-  drawCoach();
   drawBreak();
   if (flash > 0) {
     context.fillStyle = `rgba(200, 20, 30, ${flash * .35})`;
     context.fillRect(-20, -20, WIDTH + 40, HEIGHT + 40);
-  }
-  if (running && keyboardAim) {
-    shape(context, `M${aim.x - 9} ${aim.y} h18 M${aim.x} ${aim.y - 9} v18`, null, '#ffffff', 2);
   }
   context.restore();
   flash = Math.max(0, flash - dt / 500);
@@ -482,8 +437,11 @@ const hud = {
   remaining: byId('time-left'),
   processed: byId('processed'),
   losses: byId('losses'),
+  points: byId('points'),
+  deductions: byId('deductions'),
 };
 const grabButton = byId('grab');
+const cutButton = byId('cut');
 const breakButton = byId('break');
 const feedback = byId('feedback');
 const audioButton = byId('audio');
@@ -512,6 +470,8 @@ function updateHud() {
   updateText(hud.remaining, `${Math.ceil((SHIFT_MS - state.elapsed) / 1000)} s restantes`);
   updateText(hud.processed, String(state.processed));
   updateText(hud.losses, `${plural(state.lost, 'perdida', 'perdidas')} · ${plural(state.accidents, 'acidente', 'acidentes')}`);
+  updateText(hud.points, `${state.points} pontos`);
+  updateText(hud.deductions, `Descontos simulados: ${money.format(report(state).deductions / 100)}`);
   updateText(hud.fatigue, percent(state.fatigue));
   if (hud.meter.value !== state.fatigue) hud.meter.value = state.fatigue;
 
@@ -535,22 +495,14 @@ function updateHud() {
   hud.breakState.dataset.state = breakMode;
 
   const playing = running && !paused;
+  cutButton.hidden = !playing;
   breakButton.disabled = !playing || !status.ready;
-  grabButton.disabled = !playing || state.breakUntil !== null || (!state.bench && !grabbable(state));
+  grabButton.disabled = !playing || state.breakUntil !== null || (!state.bench && (state.elapsed < state.injuredUntil || !grabbable(state)));
   const mode = state.bench ? 'release' : 'grab';
   if (grabButton.dataset.mode !== mode) {
     grabButton.dataset.mode = mode;
     grabButton.innerHTML = `${mode === 'release' ? 'Devolver peça' : 'Pegar peça'} <kbd>E</kbd>`;
   }
-}
-
-function clearInput() {
-  cancelStroke(state);
-  const pointer = activePointer;
-  activePointer = null;
-  previousPointer = null;
-  keyboardStroke = false;
-  if (pointer !== null && canvas.hasPointerCapture(pointer)) canvas.releasePointerCapture(pointer);
 }
 
 function soundOn() {
@@ -624,8 +576,8 @@ function noise(duration, frequency, volume, filterType = 'lowpass') {
 }
 
 const sounds = {
-  clean: () => tone([1040, 1760, 2600], .16, { volume: .05, slide: .84 }),
-  cut: () => tone([910, 1540], .14, { volume: .045, slide: .84 }),
+  perfect: () => tone([1040, 1760, 2600], .16, { volume: .05, slide: .84 }),
+  good: () => tone([910, 1540], .14, { volume: .045, slide: .84 }),
   error: () => noise(.07, 1600, .2),
   accident: () => { noise(.14, 700, .5); tone([180], .3, { type: 'square', volume: .05, slide: .6 }); },
   grab: () => tone([240], .09, { type: 'triangle', volume: .09, slide: .7 }),
@@ -650,44 +602,36 @@ const blockedMessages = {
   'no-piece': 'Bancada vazia · pressione E para pegar uma peça',
   break: 'Em pausa · aguarde o fim da pausa',
   injured: 'Mão ferida · aguarde o curativo',
-  complete: 'Peça pronta · pressione E para devolver',
+  resolved: 'Corte encerrado · pressione E para devolver',
   busy: 'Devolva a peça à esteira antes da pausa',
   cooldown: 'Pausa indisponível por enquanto',
 };
 
 function presentEvent(event, now) {
-  const piece = state.bench;
   switch (event.kind) {
-    case 'clean':
-    case 'cut': {
-      const quality = event.kind === 'clean' ? 'Corte limpo' : 'Corte aceitável';
+    case 'perfect':
+    case 'good': {
+      strike = { id: event.id, startedAt: state.elapsed };
+      const quality = event.kind === 'perfect' ? 'Corte perfeito' : 'Bom corte';
       const streak = event.streak >= 3 ? ` · sequência ${event.streak} (+bônus)` : '';
-      const tail = event.complete ? ' · peça pronta, E para devolver' : ` · etapa ${event.step + 1}/${event.steps}`;
-      announce('good', `${quality}${tail}${streak}`, now);
-      if (piece) {
-        const { a, b } = benchStep(piece, event.step);
-        spawnParticles(a, b, event.kind === 'clean' ? 26 : 16, ['#f8d2c4', '#e6a99c', '#fff0e8'], 90);
-      }
+      announce('good', `${quality} · +${event.points} pontos · E para devolver${streak}`, now);
       sounds[event.kind]();
       break;
     }
     case 'error':
-      announce('warn', 'Corte impreciso · siga a linha de ponta a ponta', now);
+      announce('warn', 'Corte cedo demais · E para devolver', now);
       sounds.error();
       break;
     case 'accident': {
-      const text = event.risk === 'mao'
-        ? 'Acidente · a faca atingiu a mão de apoio'
-        : 'Acidente · a faca bateu no osso e escapou';
-      announce('danger', text, now, 3);
-      spawnParticles(event, event, 30, ['#c2273b', '#8d1726', '#ff5a5a'], 120);
+      announce('danger', 'Acidente · tempo esgotado · curativo e desconto', now, 3);
+      spawnParticles(BENCH, BENCH, 30, ['#c2273b', '#8d1726', '#ff5a5a'], 120);
       flash = 1;
       shake = 1;
       sounds.accident();
       break;
     }
     case 'grab':
-      announce('good', `${typeNames[event.type]} na bancada · ${CUTS[event.type].steps.length} cortes`, now);
+      announce('good', event.guided ? 'Primeira peça guiada · espere CORTE AGORA' : `${typeNames[event.type]} na bancada`, now);
       sounds.grab();
       break;
     case 'empty':
@@ -699,7 +643,7 @@ function presentEvent(event, now) {
       sounds.done();
       break;
     case 'bad':
-      announce('warn', `Peça devolvida incompleta (${event.step}/${event.steps}) · desconto`, now, 2);
+      announce('warn', 'Peça devolvida incompleta · desconto', now, 2);
       sounds.bad();
       break;
     case 'lost':
@@ -714,8 +658,8 @@ function presentEvent(event, now) {
     case 'hour': {
       const behind = event.processed < event.expected;
       announce(behind ? 'warn' : 'good', behind
-        ? `Supervisor: ritmo abaixo da meta (${event.processed} de ${event.expected}) · esteira acelerou`
-        : `Hora ${event.hour + 1} · meta até agora ${event.expected} · esteira acelerou`, now, 2);
+        ? `Supervisor: ritmo abaixo da meta (${event.processed} de ${event.expected})`
+        : `Hora ${event.hour + 1} · meta até agora ${event.expected}`, now, 2);
       sounds.supervisor();
       break;
     }
@@ -738,7 +682,6 @@ function presentEvent(event, now) {
 function presentEvents() {
   const now = performance.now();
   while (seenEvents < state.events.length) presentEvent(state.events[seenEvents++], now);
-  if (!state.stroke && (activePointer !== null || keyboardStroke)) clearInput();
 }
 
 // Recorde local, só como conveniência: tudo funciona sem armazenamento.
@@ -767,7 +710,6 @@ function saveRecord(result) {
 
 function finish() {
   running = false;
-  clearInput();
   stopHum();
   canvas.tabIndex = -1;
   const result = report(state);
@@ -792,15 +734,14 @@ function finish() {
 
 function tick(timestamp) {
   if (paused) return;
-  const elapsed = state.elapsed;
-  const speed = state.speed;
   const now = Math.max(gameTime(timestamp), lastFrame);
   lastFrame = now;
   advance(state, now);
   presentEvents();
-  const moved = (state.speed + speed) / 2 * (state.elapsed - elapsed) / 1000;
-  if (!reducedMotion.matches) beltOffset += moved;
-  slatDistance += moved;
+  const distance = state.elapsed * state.speed / 1000;
+  slatDistance += distance - lastBeltDistance;
+  lastBeltDistance = distance;
+  updateGuidance();
   if (slatDistance >= 62) {
     slatDistance %= 62;
     sounds.clack();
@@ -813,35 +754,34 @@ function tick(timestamp) {
   else frame = requestAnimationFrame(tick);
 }
 
-function start() {
+function start(event) {
   cancelAnimationFrame(frame);
-  clearInput();
   unlockAudio();
   paused = false;
   pauseOffset = 0;
+  pauses.length = 0;
   byId('paused').hidden = true;
-  lastFrame = performance.now();
+  lastFrame = wallStartedAt = performance.now();
   state = createShift(lastFrame);
   running = true;
-  beltOffset = 0;
+  lastBeltDistance = 0;
   slatDistance = 0;
   feedbackUntil = 0;
   feedbackPriority = 0;
   seenEvents = 0;
   particles = [];
-  handView = null;
+  strike = null;
   flash = 0;
   shake = 0;
-  keyboardAim = guideEnabled;
+  guideInPerfect = false;
   byId('guidance').textContent = '';
-  aim = { x: BENCH.x, y: BENCH.y };
   feedback.textContent = '';
   byId('briefing').hidden = true;
   byId('results').hidden = true;
   byId('actions').hidden = false;
   byId('pause').textContent = 'Pausar jogo';
   canvas.tabIndex = 0;
-  canvas.focus();
+  canvas.focus({ preventScroll: event.currentTarget.id === 'start' });
   updateHud();
   draw(lastFrame);
   frame = requestAnimationFrame(tick);
@@ -854,113 +794,69 @@ function setPaused(value) {
   byId('paused').hidden = !paused;
   byId('pause').textContent = paused ? 'Continuar jogo' : 'Pausar jogo';
   if (paused) {
-    clearInput();
+    advance(state, gameTime(now));
     pausedAt = now;
     cancelAnimationFrame(frame);
     stopHum();
     feedback.textContent = '';
+    presentEvents();
     updateHud();
+    draw(now);
+    if (state.finished) {
+      byId('paused').hidden = true;
+      finish();
+      return;
+    }
     byId('resume').focus();
   } else {
     pauseOffset += now - pausedAt;
+    pauses.push({ start: pausedAt, end: now });
     lastDraw = now;
-    canvas.focus();
+    updateHud();
+    canvas.focus({ preventScroll: true });
     frame = requestAnimationFrame(tick);
   }
 }
 
-function act(action) {
-  if (!running || paused) return;
+function act(action, inputTime) {
+  if (!running || (paused && inputTime === undefined)) return;
   unlockAudio();
-  const now = gameTime(performance.now());
-  clearInput();
-  action(state, now);
+  const accidents = state.accidents;
+  action(state, inputTime ?? gameTime(performance.now()));
+  if (state.accidents < accidents) {
+    // A correção remove um evento já exibido antes de registrar o corte.
+    seenEvents--;
+    feedbackUntil = 0;
+    particles = [];
+    flash = 0;
+    shake = 0;
+  }
   presentEvents();
   updateHud();
-  if (guideEnabled) describeAim();
+  updateGuidance();
 }
 
-function pointerTime(event) {
-  const time = event.timeStamp > 0 && event.timeStamp < 1e12 ? event.timeStamp : performance.now();
-  return gameTime(time);
-}
+function cutFromInput(event) {
+  if (!running) return;
+  const timestamp = event.timeStamp;
+  if (!Number.isFinite(timestamp) || timestamp < wallStartedAt || timestamp > performance.now()) return;
+  if (paused && timestamp >= pausedAt) return;
 
-function worldPoint(event) {
-  const bounds = canvas.getBoundingClientRect();
-  return {
-    x: (event.clientX - bounds.left) * WIDTH / bounds.width,
-    y: (event.clientY - bounds.top) * HEIGHT / bounds.height,
-  };
-}
-
-function inside({ x, y }) {
-  return x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT;
-}
-
-function samplePointer(event, ending = false) {
-  const point = worldPoint(event);
-  const now = pointerTime(event);
-  if (!inside(point)) {
-    const from = previousPointer;
-    // Mantém colisões na parte do traço ainda dentro da área antes de sair.
-    const fraction = Math.min(
-      point.x < 0 ? -from.x / (point.x - from.x) : point.x > WIDTH ? (WIDTH - from.x) / (point.x - from.x) : 1,
-      point.y < 0 ? -from.y / (point.y - from.y) : point.y > HEIGHT ? (HEIGHT - from.y) / (point.y - from.y) : 1,
-    );
-    const x = Math.max(0, Math.min(WIDTH, from.x + (point.x - from.x) * fraction));
-    const y = Math.max(0, Math.min(HEIGHT, from.y + (point.y - from.y) * fraction));
-    moveStroke(state, x, y, from.at + (Math.max(now, from.at) - from.at) * fraction);
-    clearInput();
-    presentEvents();
-    return;
+  let inputTime = timestamp;
+  for (const { start, end } of pauses) {
+    if (timestamp < start) break;
+    if (timestamp < end) return;
+    inputTime -= end - start;
   }
-
-  const at = Math.max(now, previousPointer.at);
-  if (ending) {
-    endStroke(state, point.x, point.y, at);
-    clearInput();
-    presentEvents();
-    return;
-  }
-  moveStroke(state, point.x, point.y, at);
-  previousPointer = { ...point, at };
-  presentEvents();
+  if (!paused && event.currentTarget === canvas) canvas.focus({ preventScroll: true });
+  act(cutPiece, inputTime);
 }
 
-canvas.addEventListener('pointerdown', (event) => {
-  if (!running || paused || activePointer !== null || keyboardStroke || event.button !== 0) return;
-  const point = worldPoint(event);
-  if (!inside(point)) return;
-  unlockAudio();
-  keyboardAim = false;
-  canvas.focus({ preventScroll: true });
-  const at = pointerTime(event);
-  beginStroke(state, point.x, point.y, at);
-  presentEvents();
-  if (!state.stroke) return;
-  previousPointer = { ...point, at };
-  activePointer = event.pointerId;
-  canvas.setPointerCapture(activePointer);
+canvas.addEventListener('click', cutFromInput);
+cutButton.addEventListener('click', cutFromInput);
+cutButton.addEventListener('keydown', (event) => {
+  if (event.repeat && (event.key === 'Enter' || event.code === 'Space')) event.preventDefault();
 });
-
-canvas.addEventListener('pointermove', (event) => {
-  if (event.pointerId !== activePointer) return;
-  const samples = event.getCoalescedEvents?.();
-  for (const sample of samples?.length ? samples : [event]) {
-    samplePointer(sample);
-    if (activePointer === null) break;
-  }
-});
-
-canvas.addEventListener('pointerup', (event) => {
-  if (event.pointerId === activePointer) samplePointer(event, true);
-});
-
-for (const type of ['pointercancel', 'lostpointercapture']) {
-  canvas.addEventListener(type, (event) => {
-    if (event.pointerId === activePointer) clearInput();
-  });
-}
 
 canvas.addEventListener('contextmenu', (event) => {
   if (!running) return;
@@ -970,120 +866,45 @@ canvas.addEventListener('contextmenu', (event) => {
 
 const guidance = byId('guidance');
 const guideToggle = byId('guide-toggle');
-const arrowKeys = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-
-function nearestEnd() {
-  const line = state.bench && benchStep(state.bench);
-  if (!line) return null;
-  return Math.hypot(line.a.x - aim.x, line.a.y - aim.y) <= Math.hypot(line.b.x - aim.x, line.b.y - aim.y) ? 'a' : 'b';
-}
-
-function relativePosition(point, origin, reference) {
-  const dx = Math.round(point.x - origin.x);
-  const dy = Math.round(point.y - origin.y);
-  const offsets = [];
-  if (dx) offsets.push(`${Math.abs(dx)} unidades ${dx > 0 ? 'à direita' : 'à esquerda'}`);
-  if (dy) offsets.push(`${Math.abs(dy)} unidades ${dy > 0 ? 'abaixo' : 'acima'}`);
-  return offsets.length ? `${offsets.join(' e ')} ${reference}` : 'no mesmo ponto';
-}
-
-let keyboardEnd = null;
-function describeAim() {
-  if (state.breakUntil !== null) {
-    guidance.textContent = 'Em pausa NR-36. A esteira continua andando.';
-    return;
-  }
+function updateGuidance() {
+  if (!guideEnabled || !running || paused) return;
   const piece = state.bench;
-  if (!piece) {
-    const next = grabbable(state);
-    guidance.textContent = next
-      ? `Bancada vazia. ${typeNames[next.type]} ao alcance, a ${Math.round(WIDTH - 65 - next.x)} unidades do fim da área. Pressione E para pegar.`
-      : 'Bancada vazia e nenhuma peça ao alcance. Aguarde a próxima e pressione G.';
-    return;
-  }
-  if (piece.step >= piece.steps) {
-    guidance.textContent = `${typeNames[piece.type]} pronto. Pressione E para devolver à esteira.`;
-    return;
-  }
-  const line = benchStep(piece);
-  const endKey = keyboardStroke ? keyboardEnd : nearestEnd();
-  const point = line[endKey];
-  const risks = benchRisks(piece);
-  const insideRisk = risks.some(risk => Math.hypot(risk.x - aim.x, risk.y - aim.y) <= risk.r);
-  const riskText = risks.map(risk => `${risk.kind === 'mao' ? 'Mão de apoio' : 'Osso'}, centro `
-    + `${relativePosition(risk, point, 'da ponta')}, raio de ${Math.round(risk.r)} unidades`).join('. ');
-  const aligned = Math.hypot(point.x - aim.x, point.y - aim.y) <= 12;
-  const action = insideRisk ? 'Mira na zona de risco. Afaste-se com as setas.'
-    : aligned ? (keyboardStroke ? 'Espaço encerra o traço.' : 'Espaço inicia o traço.')
-    : 'Aproxime a mira da ponta com as setas. Pressione G para atualizar.';
-  const end = keyboardStroke ? 'Ponta final' : 'Ponta mais próxima';
-  guidance.textContent = `${typeNames[piece.type]}, etapa ${piece.step + 1} de ${piece.steps}: ${CUTS[piece.type].names[piece.step]}. `
-    + `${end} ${relativePosition(point, aim, 'da mira')}. ${riskText}. `
-    + `Margem aceita de ${Math.round(tolerance(state))} unidades. ${action}`;
+  const timing = piece?.cut === null ? piece.timing : null;
+  const perfect = timing && state.elapsed >= timing.perfectFrom && state.elapsed <= timing.perfectUntil;
+  if (perfect && !guideInPerfect) tone([1180], .08);
+  guideInPerfect = Boolean(perfect);
+  const message = state.breakUntil !== null ? 'Em pausa NR-36.'
+    : state.elapsed < state.injuredUntil ? 'Aguarde o curativo.'
+    : !piece ? 'Pressione E quando houver uma peça ao alcance.'
+    : !timing ? 'Pressione E para devolver a peça.'
+    : perfect ? 'Corte agora.'
+    : state.elapsed < timing.goodFrom ? 'Aguarde o anel.'
+    : 'Janela de bom corte.';
+  updateText(guidance, message);
 }
 
 guideToggle.addEventListener('click', () => {
   guideEnabled = !guideEnabled;
   guideToggle.setAttribute('aria-pressed', String(guideEnabled));
-  if (!guideEnabled) {
+  if (guideEnabled) {
+    canvas.focus();
+    updateGuidance();
+  } else {
+    guideInPerfect = false;
     guidance.textContent = '';
-    return;
   }
-  keyboardAim = true;
-  canvas.focus();
-  if (running && !paused) advance(state, gameTime(performance.now()));
-  presentEvents();
-  describeAim();
 });
 
 canvas.addEventListener('keydown', (event) => {
-  if (!running || paused || activePointer !== null) return;
-  const direction = arrowKeys[event.key];
-  const lookup = guideEnabled && event.code === 'KeyG';
-  if (!direction && event.code !== 'Space' && !lookup) return;
+  if (!running || event.code !== 'Space' || event.ctrlKey || event.metaKey || event.altKey) return;
   event.preventDefault();
-  keyboardAim = true;
-  const now = gameTime(performance.now());
-  if (lookup) {
-    if (!event.repeat) {
-      advance(state, now);
-      presentEvents();
-      describeAim();
-    }
-  } else if (direction) {
-    const step = event.shiftKey ? 3 : 12;
-    aim.x = Math.max(0, Math.min(WIDTH, aim.x + direction[0] * step));
-    aim.y = Math.max(0, Math.min(HEIGHT, aim.y + direction[1] * step));
-    if (keyboardStroke) {
-      moveStroke(state, aim.x, aim.y, now);
-      presentEvents();
-    }
-  } else if (!event.repeat) {
-    if (keyboardStroke) {
-      endStroke(state, aim.x, aim.y, now);
-      keyboardStroke = false;
-      presentEvents();
-    } else {
-      advance(state, now);
-      const end = nearestEnd();
-      beginStroke(state, aim.x, aim.y, now);
-      keyboardStroke = Boolean(state.stroke);
-      keyboardEnd = end === 'a' ? 'b' : 'a';
-      presentEvents();
-    }
-    if (guideEnabled) describeAim();
-  }
+  if (!event.repeat) cutFromInput(event);
 });
 
 document.addEventListener('keydown', (event) => {
   if (!running || event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key === 'Escape') {
-    if (state.stroke) {
-      clearInput();
-      if (guideEnabled) guidance.textContent = 'Traço cancelado.';
-    } else {
-      setPaused(!paused);
-    }
+    if (!event.repeat) setPaused(!paused);
     return;
   }
   if (event.repeat || paused) return;
@@ -1103,10 +924,6 @@ for (const button of [grabButton, breakButton]) {
 grabButton.addEventListener('click', () => act(togglePiece));
 breakButton.addEventListener('click', () => act(takeBreak));
 
-canvas.addEventListener('blur', () => {
-  if (activePointer === null) clearInput();
-});
-window.addEventListener('blur', clearInput);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) setPaused(true);
 });

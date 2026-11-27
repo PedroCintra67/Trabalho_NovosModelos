@@ -12,27 +12,24 @@ export const TARGET = 18;
 
 // Números de balanceamento reunidos num só lugar.
 export const TUNING = {
-  // Corte
-  tolerance: 30,          // desvio médio aceito (unidades do mundo, na bancada)
-  coverageStart: 0.3,     // o traço precisa começar até 30% de uma ponta...
-  coverageEnd: 0.7,       // ...e terminar a partir de 70% da outra
-  minAlignment: 0.75,     // quanto do deslocamento precisa seguir a direção da linha
-  maxTravelRatio: 2.2,    // percurso máximo em relação ao comprimento da linha
-  maxDuration: 1800,      // ms; acima disso o traço é considerado impreciso
-  minTravel: 20,          // traços menores são ignorados (cliques)
-  cleanDeviation: 0.4,    // fração da tolerância para um corte "limpo"
-  cleanDuration: 900,     // ms máximos para um corte "limpo"
-  // Desgaste
-  fatigueTolerance: 0.2,  // perda máxima de tolerância por fadiga
-  accidentTolerance: 0.1, // perda extra de tolerância após um acidente
-  tremorFatigue: 4,       // amplitude do tremor da lâmina por fadiga
-  tremorAccident: 3,      // tremor extra após um acidente
-  hastyMargin: 10,        // traço rápido a esta distância da zona de risco também machuca
-  hastySpeed: 1.6,        // unidades por ms consideradas "pressa"
+  cutMs: 1600,
+  minCutMs: 950,
+  fatigueCutMs: 650,
+  injuryCutMs: 180,
+  goodLeadMs: 520,
+  perfectLeadMs: 250,
+  perfectMs: 180,
+  minPerfectMs: 70,
+  fatiguePerfectMs: 90,
+  injuryPerfectMs: 35,
+  guidedGoodLeadMs: 80,
+  guidedPerfectMs: 100,
+  perfectPoints: 100,
+  goodPoints: 60,
   fatiguePerSecond: 0.004,
-  fatiguePerStroke: 0.008,
+  fatiguePerCut: 0.008,
   fatiguePerAccident: 0.15,
-  injuryMs: 1500,         // tempo sem conseguir cortar após um acidente
+  injuryMs: 1500,
   // Pausa NR-36
   breakMs: 3500,
   breakRecovery: 0.25,
@@ -44,108 +41,49 @@ const PAY = {
   badReturn: 80, lost: 40, accident: 1250, maxDeduction: 4500,
 };
 
-// Coordenadas locais da peça (sem escala). Cada etapa é uma linha de corte.
-// A mão de apoio muda de lugar a cada etapa, como quem reposiciona a mão para
-// segurar a peça; cada posição fica perto da linha, mas fora da faixa aceita.
-export const RISK_RADIUS = { mao: 14, osso: 12 };
-export const CUTS = {
-  peito: {
-    bone: null,
-    hands: [[0, 44], [0, 20], [-12, -18]],
-    steps: [[[-52, -16], [53, 14]], [[-30, -32], [-38, 24]], [[22, -34], [30, 22]]],
-    names: ['Separar o filé', 'Tira esquerda', 'Tira direita'],
-  },
-  asa: {
-    bone: [0, -12],
-    hands: [[-68, 6], [70, 6]],
-    steps: [[[-36, -16], [-28, 28]], [[30, -20], [38, 24]]],
-    names: ['Junta interna', 'Junta da ponta'],
-  },
-  coxa: {
-    bone: [12, -30],
-    hands: [[10, 30], [-14, -17], [16, 4]],
-    steps: [[[-48, -4], [46, -6]], [[-36, 20], [44, 14]], [[-10, -22], [-30, 18]]],
-    names: ['Separar do osso', 'Desfiar', 'Desfiar'],
-  },
-};
 const ORDER = ['peito', 'asa', 'coxa'];
 
 const privateShift = new WeakMap();
 
-export function speedAt(hour) {
-  return 70 + 14 * Math.max(0, Math.min(HOURS - 1, hour));
-}
-
-function spawnInterval(hour) {
-  return 4200 - 260 * Math.max(0, Math.min(HOURS - 1, hour));
-}
+const BELT_SPEED = 70;
+const SPAWN_INTERVAL = 4200;
 
 export function hourAt(elapsed) {
   return Math.max(0, Math.min(HOURS - 1, Math.floor(elapsed / HOUR_MS)));
 }
 
-// A esteira acelera em degraus, um por hora do turno.
 function beltDistance(elapsed) {
-  let distance = 0;
-  for (let hour = 0, rest = elapsed; rest > 0; hour++, rest -= HOUR_MS) {
-    distance += speedAt(hour) * Math.min(rest, HOUR_MS) / 1000;
-  }
-  return distance;
+  return elapsed * BELT_SPEED / 1000;
 }
 
 function timeAtDistance(distance) {
-  let time = 0;
-  for (let hour = 0; hour < HOURS; hour++) {
-    const span = speedAt(hour) * HOUR_MS / 1000;
-    if (distance <= span) return time + distance / speedAt(hour) * 1000;
-    distance -= span;
-    time += HOUR_MS;
-  }
-  return Infinity;
+  return distance * 1000 / BELT_SPEED;
 }
 
 export function playable(x) {
   return x >= 65 && x <= WIDTH - 65;
 }
 
-function inside(x, y) {
-  return x >= 0 && x <= WIDTH && y >= 0 && y <= HEIGHT;
-}
-
 export function expectedBy(elapsed) {
   return Math.round(TARGET * Math.min(elapsed, SHIFT_MS) / SHIFT_MS);
 }
 
-// Pontos de uma peça na bancada, em coordenadas do mundo.
-export function benchPoint([x, y]) {
-  return { x: BENCH.x + BENCH.scale * x, y: BENCH.y + BENCH.scale * y };
-}
-
-function benchZone(point, kind) {
-  return { ...benchPoint(point), r: RISK_RADIUS[kind] * BENCH.scale, kind };
-}
-
-// Zonas de risco da etapa: sempre a mão de apoio, mais o osso em asa e coxa.
-export function benchRisks(piece, step = piece.step) {
-  const cut = CUTS[piece.type];
-  const hand = cut.hands[Math.max(0, Math.min(cut.hands.length - 1, step))];
-  const risks = [benchZone(hand, 'mao')];
-  if (cut.bone) risks.push(benchZone(cut.bone, 'osso'));
-  return risks;
-}
-
-export function benchStep(piece, step = piece.step) {
-  const line = CUTS[piece.type].steps[step];
-  return line && { a: benchPoint(line[0]), b: benchPoint(line[1]) };
-}
-
-export function tolerance(state) {
-  return TUNING.tolerance
-    * (1 - TUNING.fatigueTolerance * state.fatigue - (state.accidents > 0 ? TUNING.accidentTolerance : 0));
-}
-
-export function tremor(state) {
-  return TUNING.tremorFatigue * state.fatigue + (state.accidents > 0 ? TUNING.tremorAccident : 0);
+function cutTiming(state, guided) {
+  const injured = Number(state.accidents > 0);
+  const duration = Math.max(TUNING.minCutMs,
+    TUNING.cutMs - TUNING.fatigueCutMs * state.fatigue - TUNING.injuryCutMs * injured);
+  const perfectMs = Math.max(TUNING.minPerfectMs,
+    TUNING.perfectMs - TUNING.fatiguePerfectMs * state.fatigue - TUNING.injuryPerfectMs * injured)
+    + (guided ? TUNING.guidedPerfectMs : 0);
+  const deadline = state.elapsed + duration;
+  const center = deadline - TUNING.perfectLeadMs;
+  return {
+    startedAt: state.elapsed,
+    goodFrom: deadline - TUNING.goodLeadMs - (guided ? TUNING.guidedGoodLeadMs : 0),
+    perfectFrom: center - perfectMs / 2,
+    perfectUntil: center + perfectMs / 2,
+    deadline,
+  };
 }
 
 function emit(state, kind, at, extra = {}) {
@@ -157,22 +95,22 @@ function emit(state, kind, at, extra = {}) {
 function addPiece(state, id, x, elapsed) {
   const type = ORDER[id % ORDER.length];
   state.pieces.push({
-    id, type, x, y: BELT_Y, step: 0, steps: CUTS[type].steps.length,
+    id, type, x, y: BELT_Y, cut: null,
     returned: false, origin: x - beltDistance(elapsed),
   });
 }
 
 export function createShift(now = 0) {
   const state = {
-    elapsed: 0, finished: false, hour: 0, speed: speedAt(0),
+    elapsed: 0, finished: false, hour: 0, speed: BELT_SPEED,
     fatigue: 0, maxFatigue: 0,
-    processed: 0, errors: 0, cleanCuts: 0, accidents: 0, lost: 0, badReturns: 0,
+    processed: 0, errors: 0, points: 0, cleanCuts: 0, accidents: 0, lost: 0, badReturns: 0,
     breaks: 0, streak: 0, bestStreak: 0, bonus: 0,
-    pieces: [], bench: null, stroke: null,
+    pieces: [], bench: null,
     breakUntil: null, breakReadyAt: 0, injuredUntil: 0,
     events: [],
   };
-  privateShift.set(state, { start: now, nextSpawn: spawnInterval(0), nextId: 1, gesture: null });
+  privateShift.set(state, { start: now, nextSpawn: SPAWN_INTERVAL, nextId: 1, timeout: null, guidedUsed: false });
   addPiece(state, 0, 320, 0);
   return state;
 }
@@ -189,20 +127,23 @@ function clock(state, now) {
 export function advance(state, now) {
   const shift = privateShift.get(state);
   if (!Number.isFinite(now)) return;
-  const elapsed = clock(state, now);
+  advanceTo(state, shift, clock(state, now));
+}
+
+function advanceTo(state, shift, elapsed) {
   if (elapsed <= state.elapsed) return;
+  const timing = state.bench?.cut === null ? state.bench.timing : null;
+  // Resolva cada transição antes de acumular fadiga ou emitir eventos posteriores.
+  const boundary = timing?.deadline ?? state.breakUntil;
+  if (boundary !== null && boundary < elapsed) advanceTo(state, shift, boundary);
   const previous = state.elapsed;
   const pending = [];
 
-  // Fadiga passiva no trabalho, recuperação durante a pausa.
-  let resting = 0;
-  if (state.breakUntil !== null) {
-    const breakStart = state.breakUntil - TUNING.breakMs;
-    resting = Math.max(0, Math.min(elapsed, state.breakUntil) - Math.max(previous, breakStart));
-  }
-  const working = elapsed - previous - resting;
-  setFatigue(state, state.fatigue + working / 1000 * TUNING.fatiguePerSecond
-    - resting * TUNING.breakRecovery / TUNING.breakMs);
+  const duration = elapsed - previous;
+  const fatiguePerMs = state.breakUntil === null
+    ? TUNING.fatiguePerSecond / 1000
+    : -TUNING.breakRecovery / TUNING.breakMs;
+  setFatigue(state, state.fatigue + duration * fatiguePerMs);
   if (state.breakUntil !== null && elapsed >= state.breakUntil) {
     pending.push({ kind: 'break-end', at: state.breakUntil });
     state.breakUntil = null;
@@ -211,26 +152,26 @@ export function advance(state, now) {
   while (shift.nextSpawn <= elapsed) {
     const spawn = shift.nextSpawn;
     addPiece(state, shift.nextId++, -75, spawn);
-    shift.nextSpawn += spawnInterval(hourAt(spawn));
+    shift.nextSpawn += SPAWN_INTERVAL;
   }
 
   const hour = hourAt(elapsed);
   for (let h = state.hour + 1; h <= hour; h++) {
-    pending.push({ kind: 'hour', at: h * HOUR_MS, hour: h, expected: expectedBy(h * HOUR_MS), speed: speedAt(h) });
+    pending.push({ kind: 'hour', at: h * HOUR_MS, hour: h, expected: expectedBy(h * HOUR_MS), speed: state.speed });
   }
   state.hour = hour;
-  state.speed = speedAt(hour);
   state.elapsed = elapsed;
 
   const distance = beltDistance(elapsed);
   const kept = [];
   for (const piece of state.pieces) {
     piece.x = piece.origin + distance;
-    if (piece.x <= WIDTH + 75) {
+    const exitAt = timeAtDistance(WIDTH + 75 - piece.origin);
+    if (elapsed < exitAt) {
       kept.push(piece);
     } else if (!piece.returned) {
       state.lost++;
-      pending.push({ kind: 'lost', at: timeAtDistance(WIDTH + 75 - piece.origin), id: piece.id });
+      pending.push({ kind: 'lost', at: exitAt, id: piece.id });
     }
   }
   state.pieces = kept;
@@ -242,9 +183,22 @@ export function advance(state, now) {
     emit(state, kind, at, extra);
   }
 
+  if (elapsed === timing?.deadline) {
+    shift.timeout = {
+      at: elapsed, seq: state.events.length, fatigue: state.fatigue, maxFatigue: state.maxFatigue,
+      injuredUntil: state.injuredUntil, streak: state.streak,
+    };
+    state.bench.cut = 'accident';
+    state.accidents++;
+    state.streak = 0;
+    state.injuredUntil = timing.deadline + TUNING.injuryMs;
+    setFatigue(state, state.fatigue + TUNING.fatiguePerAccident);
+    emit(state, 'accident', timing.deadline, { id: state.bench.id });
+  }
+
   if (elapsed === SHIFT_MS) {
     state.finished = true;
-    cancelStroke(state);
+    settleCutTimeout(state);
     if (state.bench) {
       state.lost++;
       emit(state, 'lost', elapsed, { id: state.bench.id });
@@ -266,8 +220,9 @@ export function grabPiece(state, now) {
   advance(state, now);
   if (state.finished || state.bench) return null;
   const at = state.elapsed;
-  if (state.breakUntil !== null) {
-    emit(state, 'blocked', at, { reason: 'break' });
+  const reason = state.breakUntil !== null ? 'break' : at < state.injuredUntil ? 'injured' : null;
+  if (reason) {
+    emit(state, 'blocked', at, { reason });
     return 'blocked';
   }
   const piece = grabbable(state);
@@ -276,26 +231,30 @@ export function grabPiece(state, now) {
     return 'empty';
   }
   state.pieces = state.pieces.filter(candidate => candidate !== piece);
+  const shift = privateShift.get(state);
+  piece.guided = !shift.guidedUsed;
+  shift.guidedUsed = true;
+  piece.timing = cutTiming(state, piece.guided);
   state.bench = piece;
-  emit(state, 'grab', at, { id: piece.id, type: piece.type });
+  emit(state, 'grab', at, { id: piece.id, type: piece.type, guided: piece.guided });
   return 'grab';
 }
 
 export function releasePiece(state, now) {
   advance(state, now);
   if (state.finished || !state.bench) return null;
-  cancelStroke(state);
   const piece = state.bench;
   const at = state.elapsed;
+  settleCutTimeout(state);
   state.bench = null;
   piece.returned = true;
   piece.x = RETURN_X;
   piece.origin = RETURN_X - beltDistance(at);
   state.pieces.push(piece);
-  const complete = piece.step >= piece.steps;
+  const complete = piece.cut === 'perfect' || piece.cut === 'good';
   if (complete) state.processed++;
   else state.badReturns++;
-  emit(state, complete ? 'done' : 'bad', at, { id: piece.id, step: piece.step, steps: piece.steps });
+  emit(state, complete ? 'done' : 'bad', at, { id: piece.id });
   return complete ? 'done' : 'bad';
 }
 
@@ -321,7 +280,6 @@ export function takeBreak(state, now) {
     emit(state, 'blocked', state.elapsed, { reason: status.reason, remaining: status.remaining });
     return 'blocked';
   }
-  cancelStroke(state);
   state.breakUntil = Math.min(SHIFT_MS, state.elapsed + TUNING.breakMs);
   state.breakReadyAt = state.breakUntil + TUNING.breakCooldown;
   state.breaks++;
@@ -329,150 +287,60 @@ export function takeBreak(state, now) {
   return 'break';
 }
 
-function distanceToSegment(point, a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const lengthSquared = dx * dx + dy * dy;
-  const projection = lengthSquared ? ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared : 0;
-  const fraction = Math.max(0, Math.min(1, projection));
-  return Math.hypot(point.x - (a.x + fraction * dx), point.y - (a.y + fraction * dy));
+function settleCutTimeout(state) {
+  privateShift.get(state).timeout = null;
 }
 
-function recordAccident(state, risk, at) {
-  state.accidents++;
-  state.streak = 0;
-  state.injuredUntil = at + TUNING.injuryMs;
-  setFatigue(state, state.fatigue + TUNING.fatiguePerAccident);
-  emit(state, 'accident', at, { risk: risk.kind, x: risk.x, y: risk.y });
+function correctCutTimeout(state, timeout) {
+  state.bench.cut = null;
+  state.accidents--;
+  state.injuredUntil = timeout.injuredUntil;
+  state.streak = timeout.streak;
+  state.maxFatigue = timeout.maxFatigue;
+  // Enquanto a peça estiver na bancada, o tempo de jogo após o acidente só acumula fadiga passiva.
+  setFatigue(state, timeout.fatigue + (state.elapsed - timeout.at) * TUNING.fatiguePerSecond / 1000);
+  state.events.splice(timeout.seq, 1);
+  for (let i = timeout.seq; i < state.events.length; i++) state.events[i].seq = i;
+  settleCutTimeout(state);
 }
 
-function sample(state, x, y, now) {
+export function cutPiece(state, now) {
+  if (!Number.isFinite(now)) return null;
   const shift = privateShift.get(state);
-  const gesture = shift.gesture;
-  const last = gesture.samples.at(-1);
-  const elapsed = Math.max(last?.elapsed ?? 0, clock(state, now));
-  const amplitude = tremor(state);
-  const point = {
-    x: x + amplitude * Math.sin(elapsed / 37),
-    y: y + amplitude * Math.sin(elapsed / 53),
-    elapsed,
-  };
-  if (last && last.x === point.x && last.y === point.y) return;
-  gesture.samples.push(point);
-  state.stroke.points.push({ x: point.x, y: point.y });
-  if (!last) return;
-
-  const distance = Math.hypot(point.x - last.x, point.y - last.y);
-  gesture.travel += distance;
-  const hasty = distance > TUNING.hastySpeed * Math.max(1, elapsed - last.elapsed);
-  for (const risk of benchRisks(gesture.piece)) {
-    const gap = distanceToSegment(risk, last, point) - risk.r;
-    if (gap <= 0 || (hasty && gap <= TUNING.hastyMargin)) {
-      state.stroke = null;
-      shift.gesture = null;
-      recordAccident(state, risk, elapsed);
-      return;
-    }
-  }
-}
-
-// Motivo pelo qual não é possível cortar agora, ou null.
-export function cutBlocker(state) {
-  if (state.breakUntil !== null) return 'break';
-  if (!state.bench) return 'no-piece';
-  if (state.elapsed < state.injuredUntil) return 'injured';
-  if (state.bench.step >= state.bench.steps) return 'complete';
-  return null;
-}
-
-export function beginStroke(state, x, y, now) {
+  const inputAt = now - shift.start;
+  const active = state.bench?.cut === null ? state.bench : null;
+  if (state.bench && inputAt < state.bench.timing.startedAt) return null;
   advance(state, now);
-  if (state.finished || state.stroke || !inside(x, y) || !Number.isFinite(now)) return null;
-  const reason = cutBlocker(state);
+  if (state.finished) return null;
+  const at = state.elapsed;
+  if (active?.cut === 'accident') return 'accident';
+  const piece = state.bench;
+  if (shift.timeout && inputAt < piece.timing.deadline) correctCutTimeout(state, shift.timeout);
+  const reason = state.breakUntil !== null ? 'break'
+    : at < state.injuredUntil ? 'injured'
+    : !piece ? 'no-piece'
+    : piece.cut !== null ? 'resolved'
+    : null;
   if (reason) {
-    emit(state, 'blocked', state.elapsed, { reason });
+    emit(state, 'blocked', at, { reason });
     return reason;
   }
-  privateShift.get(state).gesture = { piece: state.bench, samples: [], travel: 0 };
-  state.stroke = { points: [] };
-  sample(state, x, y, now);
-  return 'stroke';
-}
 
-export function moveStroke(state, x, y, now) {
-  advance(state, now);
-  if (!state.stroke) return;
-  if (!inside(x, y) || !Number.isFinite(now)) {
-    cancelStroke(state);
-    return;
-  }
-  sample(state, x, y, now);
-}
-
-export function cancelStroke(state) {
-  state.stroke = null;
-  privateShift.get(state).gesture = null;
-}
-
-export function judgeStroke(state, samples, line) {
-  const first = samples[0];
-  const last = samples.at(-1);
-  const { a, b } = line;
-  let travel = 0;
-  let deviationSum = 0;
-  for (let i = 1; i < samples.length; i++) {
-    const from = samples[i - 1];
-    const to = samples[i];
-    const length = Math.hypot(to.x - from.x, to.y - from.y);
-    const middle = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-    travel += length;
-    deviationSum += length * (distanceToSegment(from, a, b)
-      + 4 * distanceToSegment(middle, a, b) + distanceToSegment(to, a, b)) / 6;
-  }
-  if (travel < TUNING.minTravel) return null;
-
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.hypot(dx, dy);
-  const project = point => ((point.x - a.x) * dx + (point.y - a.y) * dy) / length;
-  const start = project(first);
-  const end = project(last);
-  const displacement = Math.hypot(last.x - first.x, last.y - first.y);
-  const duration = last.elapsed - first.elapsed;
-  const deviation = deviationSum / travel;
-  const limit = tolerance(state);
-  const valid = duration <= TUNING.maxDuration
-    && Math.min(start, end) <= length * TUNING.coverageStart
-    && Math.max(start, end) >= length * TUNING.coverageEnd
-    && Math.abs(end - start) >= displacement * TUNING.minAlignment
-    && travel <= length * TUNING.maxTravelRatio
-    && deviation <= limit;
-  if (!valid) return { kind: 'error', deviation };
-  const clean = deviation <= limit * TUNING.cleanDeviation && duration <= TUNING.cleanDuration;
-  return { kind: clean ? 'clean' : 'cut', deviation };
-}
-
-export function endStroke(state, x, y, now) {
-  const shift = privateShift.get(state);
-  moveStroke(state, x, y, now);
-  const gesture = shift.gesture;
-  if (!gesture) return null;
-  cancelStroke(state);
-  const piece = gesture.piece;
-  if (state.bench !== piece || piece.step >= piece.steps) return null;
-  const result = judgeStroke(state, gesture.samples, benchStep(piece));
-  if (!result) return null;
-
-  const at = gesture.samples.at(-1).elapsed;
-  setFatigue(state, state.fatigue + TUNING.fatiguePerStroke);
-  if (result.kind === 'error') {
+  const { goodFrom, perfectFrom, perfectUntil } = piece.timing;
+  setFatigue(state, state.fatigue + TUNING.fatiguePerCut);
+  if (inputAt < goodFrom) {
+    piece.cut = 'error';
     state.errors++;
     state.streak = 0;
-    emit(state, 'error', at, { deviation: result.deviation });
-    return 'error';
+    emit(state, 'error', at, { id: piece.id });
+    return piece.cut;
   }
-  const step = piece.step++;
-  if (result.kind === 'clean') {
+
+  const perfect = inputAt >= perfectFrom && inputAt <= perfectUntil;
+  piece.cut = perfect ? 'perfect' : 'good';
+  const points = perfect ? TUNING.perfectPoints : TUNING.goodPoints;
+  state.points += points;
+  if (perfect) {
     state.cleanCuts++;
     state.streak++;
     state.bestStreak = Math.max(state.bestStreak, state.streak);
@@ -480,22 +348,20 @@ export function endStroke(state, x, y, now) {
   } else {
     state.streak = 0;
   }
-  emit(state, result.kind, at, {
-    step, steps: piece.steps, complete: piece.step >= piece.steps, streak: state.streak,
-  });
-  return result.kind;
+  emit(state, piece.cut, at, { id: piece.id, points, streak: state.streak });
+  return piece.cut;
 }
 
 export function report(state) {
   const {
-    processed, errors, accidents, fatigue, maxFatigue, lost, badReturns,
+    processed, errors, points, accidents, fatigue, maxFatigue, lost, badReturns,
     cleanCuts, bestStreak, breaks, bonus,
   } = state;
   const gross = PAY.base + processed * PAY.piece + bonus;
   const deductions = Math.min(gross, PAY.maxDeduction,
     badReturns * PAY.badReturn + lost * PAY.lost + accidents * PAY.accident);
   return {
-    processed, target: TARGET, lost, badReturns, cleanCuts, bestStreak,
+    processed, target: TARGET, points, lost, badReturns, cleanCuts, bestStreak,
     fatigue, maxFatigue, errors, accidents, breaks,
     gross, bonus, deductions, net: gross - deductions,
   };

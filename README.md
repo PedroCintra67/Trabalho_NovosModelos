@@ -1,36 +1,23 @@
 # Turno na Esteira
 
-Jogo de navegador sobre o trabalho repetitivo numa linha de corte de frango. Um turno fictício de oito horas dura 90 segundos. A esteira acelera a cada hora, as peças se acumulam e o trabalhador acumula desgaste. O jogo mostra a troca entre produção, saúde e pagamento.
+Jogo de navegador sobre o trabalho repetitivo numa linha de corte de frango. O turno fictício de oito horas dura 90 segundos. A esteira mantém o ritmo enquanto a fadiga reduz o tempo para cortar e estreita a faixa de corte perfeito.
 
 ## Jogar localmente
 
-Na raiz do projeto, execute `python -m http.server 8000 --bind 127.0.0.1` e abra `http://127.0.0.1:8000/` no navegador. A interface usa módulos JavaScript e roda por HTTP, sem instalar pacotes.
+Na raiz do projeto, execute `python -m http.server 8000 --bind 127.0.0.1` e abra `http://127.0.0.1:8000/` no navegador. Para testar em um subcaminho, execute o mesmo comando na pasta que contém o projeto e abra `http://127.0.0.1:8000/<nome-da-pasta>/`. O jogo usa módulos JavaScript e roda por HTTP sem instalar pacotes.
 
 ## Como jogar
 
-1. **E** (ou clique direito, ou o botão **Pegar peça**) tira da esteira a peça mais à direita ao alcance, destacada em amarelo, e a coloca na bancada.
-2. Na bancada, a peça fica parada. Arraste com o mouse ou o dedo ao longo de cada linha tracejada, em qualquer sentido. Peito e coxa têm três cortes e asa tem dois. A faixa clara em volta da linha mostra a margem aceita, que encolhe com a fadiga.
-3. **E** de novo devolve a peça à esteira. Completa, conta como processada. Incompleta, conta como mal processada e gera desconto.
-4. Peças que chegam ao fim da esteira sem ser pegas são **perdidas** e também geram desconto.
-5. Evite a **mão de apoio** e o **osso**, marcados em vermelho. Toda peça tem a mão de apoio, que muda de lugar a cada corte, como quem reposiciona a mão para segurar o frango. Asa e coxa também têm osso. Encostar neles, ou passar rápido demais muito perto, causa um acidente: a mão fica alguns instantes sem cortar e o tremor da faca aumenta até o fim do turno.
-6. **P** inicia uma **pausa NR-36**. A fadiga cai, mas a esteira continua e peças podem passar. É preciso devolver a peça da bancada antes da pausa, e há um intervalo entre pausas.
-7. **Escape** cancela o traço em andamento ou pausa o jogo.
+1. Pressione **E** ou clique em **Pegar peça** para levar à bancada a peça ao alcance mais à direita. Clique direito na cena também funciona.
+2. Acompanhe o anel que encolhe e o aviso de timing. Quando aparecer **CORTE AGORA**, pressione **Espaço**, clique em **Cortar** ou clique na cena. A primeira peça tem orientação na bancada, mais tempo para reagir e uma janela de acerto maior. Cada peça tem uma tentativa. Um corte perfeito vale 100 pontos e um bom vale 60. Um corte adiantado desperdiça a tentativa.
+3. Pressione **E** novamente para devolver a peça. Se o tempo do corte acabar, ocorre um acidente. O curativo bloqueia temporariamente novas tentativas e há uma penalidade de timing até o fim do turno. O desconto do acidente aparece no painel e entra no cálculo do pagamento.
+4. Com a bancada livre, pressione **P** para iniciar a pausa NR-36. A fadiga cai, mas a esteira continua. Pressione **Esc** para pausar ou retomar o jogo.
 
-Cortes limpos em sequência rendem um pequeno bônus. A cada hora, o supervisor compara a produção com a meta. O relatório final mostra produção, meta, perdas, fadiga máxima, pausas, acidentes e pagamento, com um comentário sobre o resultado. O melhor valor líquido fica salvo no navegador.
+Peças que caem da esteira ou são devolvidas sem um corte válido geram descontos. Cortes perfeitos em sequência rendem bônus. Ao fim do turno, o relatório mostra a produção, os acidentes, as pausas e o pagamento simulado.
 
-### Teclado e acessibilidade
+## Verificar
 
-As setas movem a mira (12 unidades; com Shift, 3) e Espaço inicia e encerra o traço. Ative **Orientação de teclado** e pressione **G** para ouvir a posição da etapa atual, da zona de risco e da margem aceita. **Som do jogo** liga ou desliga os efeitos sonoros. O jogo respeita a preferência do sistema por movimento reduzido.
-
-## Estrutura
-
-- `index.html` contém as telas e os controles.
-- `styles/` contém a apresentação visual.
-- `src/engine.mjs` contém as regras puras do turno: esteira, bancada, cortes, pausas e relatório. Os números de balanceamento ficam no objeto `TUNING`.
-- `src/ui.mjs` conecta os controles, a cena, as partículas e o áudio ao motor.
-- `tests/` cobre as regras do jogo com o executor de testes do Node.js.
-
-Execute `node --test` para verificar o motor.
+Execute `node --test` para rodar a suíte do motor.
 
 ## Contexto
 
